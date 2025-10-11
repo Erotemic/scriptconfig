@@ -1,3 +1,7 @@
+"""
+Proof of concept that opaque submodals are possible, although we do have to
+write some custom plubming.
+"""
 import argparse
 import sys
 
