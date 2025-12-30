@@ -1,9 +1,19 @@
 from _typeshed import Incomplete
 from scriptconfig.config import Config, MetaConfig
+from typing import Dict, Type, Any
 
 
 def dataconf(cls):
     ...
+
+
+class SubConfig:
+    default: Type[Config] | Config
+    choices: Dict[str, Type[Config]] | None
+    allow_import: bool | None
+
+    def __init__(self, default, *, choices=None, allow_import=None) -> None:
+        ...
 
 
 class MetaDataConfig(MetaConfig):
@@ -48,6 +58,29 @@ class DataConfig(Config, metaclass=MetaDataConfig):
     def parse_known_args(cls,
                          args: Incomplete | None = ...,
                          namespace: Incomplete | None = ...):
+        ...
+
+    @classmethod
+    def cli(cls, data=None, default=None, argv=None, strict: bool = ...,
+            cmdline: bool = ..., autocomplete='auto', special_options: bool = ...,
+            transition_helpers: bool = ..., verbose=False, allow_import: bool = ...) -> "DataConfig":
+        ...
+
+    def load(self, data=None, cmdline=False, mode=None, default=None,
+             strict=False, autocomplete=False, _dont_call_post_init=False,
+             special_options=True, allow_import=False):
+        ...
+
+    def asdict(self) -> Dict[str, Any]:
+        ...
+
+    def to_dict(self) -> Dict[str, Any]:
+        ...
+
+    def dump(self, stream=None, mode=None):
+        ...
+
+    def dumps(self, mode=None):
         ...
 
     @property
