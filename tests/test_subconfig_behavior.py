@@ -104,3 +104,52 @@ def test_reserved_class_name_error():
     with pytest.raises(ValueError):
         class BadConfig(scfg.DataConfig):
             __default__ = {'__class__': 1}
+
+
+def test_dotted_access_for_config_and_dataconfig():
+    class Inner(scfg.Config):
+        __default__ = {'leaf': 1}
+
+    class Outer(scfg.Config):
+        __default__ = {'inner': Inner()}
+
+    cfg = Outer()
+    cfg['inner.leaf'] = 5
+    assert cfg['inner.leaf'] == 5
+    assert cfg.inner.leaf == 5
+
+    class InnerDC(scfg.DataConfig):
+        leaf = 1
+
+    class OuterDC(scfg.DataConfig):
+        inner = InnerDC()
+
+    dcfg = OuterDC()
+    dcfg['inner.leaf'] = 9
+    assert dcfg['inner.leaf'] == 9
+    assert dcfg.inner.leaf == 9
+
+
+def test_dump_and_load_roundtrip(tmp_path):
+    class ChoiceA(scfg.DataConfig):
+        x = 1
+
+    class ChoiceB(scfg.DataConfig):
+        x = 2
+
+    class Outer(scfg.Config):
+        __default__ = {
+            'inner': scfg.SubConfig(ChoiceA, choices={'a': ChoiceA, 'b': ChoiceB}),
+            'root': 3,
+        }
+
+    cfg = Outer.cli(argv=['--inner=b', '--inner.x=10'])
+    out_path = tmp_path / 'cfg.yaml'
+    with open(out_path, 'w') as file:
+        cfg.dump(stream=file)
+
+    cfg2 = Outer()
+    cfg2.load(out_path, cmdline=False)
+    assert isinstance(cfg2['inner'], ChoiceB)
+    assert cfg2['inner'].x == 10
+    assert cfg2['root'] == 3

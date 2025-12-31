@@ -1,19 +1,11 @@
 from _typeshed import Incomplete
 from scriptconfig.config import Config, MetaConfig
+from scriptconfig.subconfig import SubConfig
 from typing import Dict, Type, Any
 
 
 def dataconf(cls):
     ...
-
-
-class SubConfig:
-    default: Type[Config] | Config
-    choices: Dict[str, Type[Config]] | None
-    allow_import: bool | None
-
-    def __init__(self, default, *, choices=None, allow_import=None) -> None:
-        ...
 
 
 class MetaDataConfig(MetaConfig):
