@@ -103,7 +103,7 @@ def test_precedence_default_file_kwargs_cli(tmp_path):
 
 
 def test_unknown_key_error():
-    with pytest.raises(KeyError):
+    with pytest.raises(SystemExit):
         TrainConfig.cli(argv=['--optim.unknown=1'], allow_subconfig_overrides=True)
 
 

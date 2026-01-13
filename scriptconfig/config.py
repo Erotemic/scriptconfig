@@ -1093,8 +1093,14 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             >>> cfg = TrainCfg()
             >>> cfg._read_argv(argv='--optim=sgd --optim.momentum=0.8')
             >>> assert isinstance(cfg.optim, Sgd) and cfg.optim.momentum == 0.8
-            >>> with pytest.raises(KeyError):
+            >>> print('Test error case:')
+            >>> with pytest.raises(SystemExit) as ex:
             ...     cfg._read_argv(argv='--optim.unknown=1', strict=True)
+            >>> print(f'Got expected error: {ex}')
+            >>> print('Test success case:')
+            >>> cfg._read_argv(argv='--optim=sgd --optim.momentum=0.8')
+            >>> print(cfg.dumps())
+            >>> assert isinstance(cfg.optim, Sgd) and cfg.optim.momentum == 0.8
         """
         if isinstance(argv, str):
             import shlex
@@ -1127,16 +1133,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
         try:
             if strict:
-                if has_subconfigs:
-                    # In subconfig mode we want an explicit KeyError for
-                    # unknown dotted keys instead of argparse exiting.
-                    ns_obj, extras = parser.parse_known_args(argv)
-                    if extras:
-                        unknown = ' '.join(extras)
-                        raise KeyError(f'Unknown configuration options: {unknown}')
-                    ns = ns_obj.__dict__
-                else:
-                    ns = parser.parse_args(argv).__dict__
+                ns = parser.parse_args(argv).__dict__
             else:
                 ns = parser.parse_known_args(argv)[0].__dict__
         except (ValueError, TypeError, KeyError) as ex:
