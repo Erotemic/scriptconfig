@@ -981,113 +981,6 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                     _alias_map[a] = k
         return _alias_map
 
-    def _read_argv_subconfig(self, argv=None, special_options=True, strict=False,
-                             autocomplete=False, allow_import=True,
-                             allow_subconfig_overrides=True, pending_updates=None,
-                             localns=None):
-        import inspect
-        from scriptconfig import subconfig as _subcfg_mod
-
-        argv_list, want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
-
-        if localns is None:
-            frame = inspect.currentframe()
-            try:
-                caller = frame.f_back if frame is not None else None
-                if caller is not None and caller.f_code.co_name in {'load', 'cli'}:
-                    caller = caller.f_back
-                localns = {}
-                if caller is not None:
-                    localns.update(caller.f_globals)
-                    localns.update(caller.f_locals)
-            finally:
-                del frame
-
-        if special_options:
-            config_fpath = _subcfg_mod.scan_config_path(argv_list)
-            if config_fpath is not None:
-                cfg_updates = _subcfg_mod.coerce_data_updates(config_fpath)
-                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
-                    raise ValueError(
-                        'SubConfig selection overrides require allow_subconfig_overrides=True'
-                    )
-                _subcfg_mod.apply_dot_updates(
-                    self, cfg_updates, allow_import=allow_import, localns=localns
-                )
-
-        if pending_updates is not None:
-            cfg_updates = pending_updates
-            if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
-                raise ValueError(
-                    'SubConfig selection overrides require allow_subconfig_overrides=True'
-                )
-            _subcfg_mod.apply_dot_updates(
-                self, cfg_updates, allow_import=allow_import, localns=localns
-            )
-
-        if allow_subconfig_overrides:
-            selector_updates, stage2_argv = _subcfg_mod.extract_selector_overrides(
-                self, argv_list, allow_import=allow_import, localns=localns
-            )
-            if selector_updates:
-                _subcfg_mod.apply_dot_updates(
-                    self, selector_updates, allow_import=allow_import, localns=localns
-                )
-            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
-            parser = flat_helper.argparse(special_options=special_options)
-        else:
-            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
-            parser = flat_helper.argparse(special_options=special_options)
-            _subcfg_mod.add_forbidden_selector_args(parser, self)
-            stage2_argv = argv_list
-
-        if autocomplete:
-            try:
-                import argcomplete as argcomplete_mod
-            except ImportError:
-                if autocomplete != 'auto':
-                    raise
-            else:
-                argcomplete_mod.autocomplete(parser)
-
-        try:
-            if strict:
-                ns_obj, extras = parser.parse_known_args(stage2_argv)
-                if extras:
-                    unknown = ' '.join(extras)
-                    raise KeyError(f'Unknown configuration options: {unknown}')
-            else:
-                ns_obj = parser.parse_known_args(stage2_argv)[0]
-            ns = ns_obj.__dict__
-        except (ValueError, TypeError, KeyError) as ex:
-            from scriptconfig.util import util_exception
-            note = ub.codeblock(
-                f'''
-                Error while attempting to parse arguments in _read_argv
-
-                Context:
-                    argv = {stage2_argv!r}
-                    special_options = {special_options!r}
-                    strict = {strict!r}
-                    autocomplete = {autocomplete!r}
-                    self = {self!r}
-                ''')
-            print(note)
-            ex = util_exception.add_exception_note(ex, note)
-            raise ex
-
-        special_ns = {}
-        if special_options:
-            special_ns = {k: ns.pop(k, None) for k in ['config', 'dump', 'dumps']}
-
-        explicit = getattr(parser, '_explicitly_given', set())
-        explicit_updates = {k: v for k, v in ns.items() if k in explicit}
-        if explicit_updates:
-            _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
-
-        if special_options:
-            _subcfg_mod.handle_special_dump(self, special_ns)
-
     def _read_argv(self, argv=None, special_options=True, strict=False, autocomplete=False,
                    allow_import=True, allow_subconfig_overrides=True, pending_updates=None,
                    localns=None):
@@ -1188,7 +1081,9 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             argv = shlex.split(argv)
 
         if getattr(self, '_has_subconfigs', False):
-            self._read_argv_subconfig(
+            # Subconfig argv parsing requires a staged approach to resolve selector
+            # overrides before building a parser for realized leaf options.
+            self._read_argv_multipass(
                 argv=argv,
                 special_options=special_options,
                 strict=strict,
@@ -1331,6 +1226,121 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
                     sys.exit(1)
         return self
+
+    def _read_argv_multipass(self, argv=None, special_options=True, strict=False,
+                             autocomplete=False, allow_import=True,
+                             allow_subconfig_overrides=True, pending_updates=None,
+                             localns=None):
+        """
+        Parse argv for configs with nested SubConfig nodes.
+
+        This uses a staged parse: first realize the tree shape (optionally
+        allowing selector overrides), then parse remaining leaf arguments
+        against a flattened parser for the realized tree.
+        """
+        import inspect
+        from scriptconfig import subconfig as _subcfg_mod
+
+        argv_list, want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
+
+        if localns is None:
+            frame = inspect.currentframe()
+            try:
+                caller = frame.f_back if frame is not None else None
+                if caller is not None and caller.f_code.co_name in {'load', 'cli'}:
+                    caller = caller.f_back
+                localns = {}
+                if caller is not None:
+                    localns.update(caller.f_globals)
+                    localns.update(caller.f_locals)
+            finally:
+                del frame
+
+        if special_options:
+            config_fpath = _subcfg_mod.scan_config_path(argv_list)
+            if config_fpath is not None:
+                cfg_updates = _subcfg_mod.coerce_data_updates(config_fpath)
+                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
+                    raise ValueError(
+                        'SubConfig selection overrides require allow_subconfig_overrides=True'
+                    )
+                _subcfg_mod.apply_dot_updates(
+                    self, cfg_updates, allow_import=allow_import, localns=localns
+                )
+
+        if pending_updates is not None:
+            cfg_updates = pending_updates
+            if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
+                raise ValueError(
+                    'SubConfig selection overrides require allow_subconfig_overrides=True'
+                )
+            _subcfg_mod.apply_dot_updates(
+                self, cfg_updates, allow_import=allow_import, localns=localns
+            )
+
+        if allow_subconfig_overrides:
+            selector_updates, stage2_argv = _subcfg_mod.extract_selector_overrides(
+                self, argv_list, allow_import=allow_import, localns=localns
+            )
+            if selector_updates:
+                _subcfg_mod.apply_dot_updates(
+                    self, selector_updates, allow_import=allow_import, localns=localns
+                )
+            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
+            parser = flat_helper.argparse(special_options=special_options)
+        else:
+            # Static parse path: disallow selector overrides and fail early.
+            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
+            parser = flat_helper.argparse(special_options=special_options)
+            _subcfg_mod.add_forbidden_selector_args(parser, self)
+            stage2_argv = argv_list
+
+        if autocomplete:
+            try:
+                import argcomplete as argcomplete_mod
+            except ImportError:
+                if autocomplete != 'auto':
+                    raise
+            else:
+                argcomplete_mod.autocomplete(parser)
+
+        try:
+            if strict:
+                ns_obj, extras = parser.parse_known_args(stage2_argv)
+                if extras:
+                    unknown = ' '.join(extras)
+                    raise KeyError(f'Unknown configuration options: {unknown}')
+            else:
+                ns_obj = parser.parse_known_args(stage2_argv)[0]
+            ns = ns_obj.__dict__
+        except (ValueError, TypeError, KeyError) as ex:
+            from scriptconfig.util import util_exception
+            note = ub.codeblock(
+                f'''
+                Error while attempting to parse arguments in _read_argv
+
+                Context:
+                    argv = {stage2_argv!r}
+                    special_options = {special_options!r}
+                    strict = {strict!r}
+                    autocomplete = {autocomplete!r}
+                    self = {self!r}
+                ''')
+            print(note)
+            ex = util_exception.add_exception_note(ex, note)
+            raise ex
+
+        special_ns = {}
+        if special_options:
+            special_ns = {k: ns.pop(k, None) for k in ['config', 'dump', 'dumps']}
+
+        explicit = getattr(parser, '_explicitly_given', set())
+        explicit_updates = {k: v for k, v in ns.items() if k in explicit}
+        if explicit_updates:
+            _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
+
+        if special_options:
+            _subcfg_mod.handle_special_dump(self, special_ns)
 
     def __post_init__(self):
         """ overloadable function called after each load """
