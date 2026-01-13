@@ -123,7 +123,7 @@ def test_dotted_access_for_config_and_dataconfig():
     cfg = Outer()
     cfg['inner.leaf'] = 5
     assert cfg['inner.leaf'] == 5
-    assert cfg.inner.leaf == 5
+    assert cfg['inner']['leaf'] == 5
 
     class InnerDC(scfg.DataConfig):
         leaf = 1
@@ -197,7 +197,7 @@ def test_subconfig_stacklevel_localns_resolution():
         )
 
     cfg = wrapper_cli()
-    assert isinstance(cfg.optim, LocalOpt)
+    assert isinstance(cfg['optim'], LocalOpt)
 
     def wrapper_load():
         cfg = TrainLocal()
@@ -209,7 +209,7 @@ def test_subconfig_stacklevel_localns_resolution():
         return cfg
 
     cfg2 = wrapper_load()
-    assert isinstance(cfg2.optim, LocalOpt)
+    assert isinstance(cfg2['optim'], LocalOpt)
 
 
 def test_subconfig_config_string_cases():

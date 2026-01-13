@@ -1117,7 +1117,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             ...     }
             >>> cfg = TrainCfg()
             >>> cfg._read_argv(argv='--optim=sgd --optim.momentum=0.8')
-            >>> assert isinstance(cfg.optim, Sgd) and cfg.optim.momentum == 0.8
+            >>> assert isinstance(cfg['optim'], Sgd) and cfg['optim']['momentum'] == 0.8
             >>> print('Test error case:')
             >>> with pytest.raises(SystemExit) as ex:
             ...     cfg._read_argv(argv='--optim.unknown=1', strict=True)
@@ -1125,7 +1125,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             >>> print('Test success case:')
             >>> cfg._read_argv(argv='--optim=sgd --optim.momentum=0.8')
             >>> print(cfg.dumps())
-            >>> assert isinstance(cfg.optim, Sgd) and cfg.optim.momentum == 0.8
+            >>> assert isinstance(cfg['optim'], Sgd) and cfg['optim']['momentum'] == 0.8
         """
         if isinstance(argv, str):
             import shlex
@@ -1362,13 +1362,6 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             return self.__default__
         elif key == '__default__' and hasattr(self, 'default'):
             return self.default
-        if key.startswith('_') or not hasattr(self, '_data') or self._data is None:
-            raise AttributeError(key)
-        if key in self:
-            try:
-                return self[key]
-            except KeyError:
-                ...
         raise AttributeError(key)
 
     @property
