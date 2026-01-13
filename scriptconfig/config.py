@@ -458,18 +458,14 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             cmdline = argv
         if default is None:
             default = {}
-        if localns is None and stacklevel is not None:
-            from scriptconfig import subconfig as _subcfg_mod
-            frame = _subcfg_mod.get_stack_frame(stacklevel=stacklevel + 1)
-            localns = dict(frame.f_globals)
-            localns.update(frame.f_locals)
         # Note: hack to avoid calling __post_init__ twice
         self = cls(_dont_call_post_init=True)
+        next_stacklevel = None if stacklevel is None else stacklevel + 1
         self.load(data, cmdline=cmdline, default=default, strict=strict,
                   autocomplete=autocomplete, special_options=special_options,
                   allow_import=allow_import,
                   allow_subconfig_overrides=allow_subconfig_overrides,
-                  localns=localns, stacklevel=stacklevel)
+                  localns=localns, stacklevel=next_stacklevel)
 
         if isinstance(verbose, str) and verbose == 'auto':
             verbose = self.get('verbose', verbose)
@@ -939,13 +935,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             import shlex
             cmdline = shlex.split(os.path.expandvars(cmdline))
 
-        if localns is None and stacklevel is not None:
-            from scriptconfig import subconfig as _subcfg_mod
-            frame = _subcfg_mod.get_stack_frame(stacklevel=stacklevel + 1)
-            localns = dict(frame.f_globals)
-            localns.update(frame.f_locals)
-
         if cmdline or ub.iterable(cmdline):
+            next_stacklevel = None if stacklevel is None else stacklevel + 1
             read_argv_kwargs = {
                 'special_options': special_options,
                 'strict': strict,
@@ -955,7 +946,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 'allow_subconfig_overrides': allow_subconfig_overrides,
                 'pending_updates': pending_updates,
                 'localns': localns,
-                'stacklevel': stacklevel,
+                'stacklevel': next_stacklevel,
             }
             if isinstance(cmdline, dict):
                 ub.schedule_deprecation('scriptconfig', 'cmdline', 'parameter as a dictionary',
@@ -1156,7 +1147,6 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 allow_subconfig_overrides=allow_subconfig_overrides,
                 pending_updates=pending_updates,
                 localns=localns,
-                stacklevel=stacklevel,
             )
 
         if autocomplete:
@@ -1319,7 +1309,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
     def _expand_multipass_parser(self, parser, argv=None, special_options=True,
                                  allow_import=True, allow_subconfig_overrides=True,
-                                 pending_updates=None, localns=None, stacklevel=0):
+                                 pending_updates=None, localns=None):
         """
         Expand an argparse parser for configs with nested SubConfig nodes.
 
@@ -1330,10 +1320,6 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         from scriptconfig import subconfig as _subcfg_mod
 
         argv_list, _want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
-        if localns is None and stacklevel is not None:
-            frame = _subcfg_mod.get_stack_frame(stacklevel=stacklevel + 1)
-            localns = dict(frame.f_globals)
-            localns.update(frame.f_locals)
 
         if special_options:
             config_fpath = _subcfg_mod.scan_config_path(argv_list)
