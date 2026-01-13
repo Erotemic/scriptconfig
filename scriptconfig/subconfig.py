@@ -37,7 +37,6 @@ __all__ = [
     'add_forbidden_selector_args',
     'apply_dot_updates',
     'config_to_nested_dict',
-    'coerce_data_updates',
     'expand_multipass_parser',
     'ensure_subconfigs_instantiated',
     'find_subconfig_paths',
