@@ -420,7 +420,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 except when we can infer special behavior from the
                 user-defined config via standard keys: verbose, quiet, silent.
             allow_import (bool):
-                If True, allow module path selectors like ``pkg.mod:Class``
+                If True, allow module path selectors like
+                ``pkg.mod.ClassName``
                 for SubConfig selection. Defaults to True.
             allow_subconfig_overrides (bool):
                 If True, enable multipass CLI parsing to allow SubConfig
@@ -742,7 +743,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 adds special scriptconfig options, namely: --config, --dumps,
                 and --dump. Prefer using this over cmdline.
             allow_import (bool):
-                If True, allow module path selectors like ``pkg.mod:Class``
+                If True, allow module path selectors like
+                ``pkg.mod.ClassName``
                 for SubConfig selection. Defaults to True.
             allow_subconfig_overrides (bool):
                 If True, enable multipass CLI parsing to allow SubConfig
@@ -1075,6 +1077,24 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             >>> self = MyConfig()
             >>> self._read_argv(argv='p1 p2 p3!')
             >>> print('self = {}'.format(self))
+
+        Example:
+            >>> # SubConfig case: staged parsing + dotted overrides
+            >>> import scriptconfig as scfg
+            >>> import pytest
+            >>> class Adam(scfg.Config):
+            ...     __default__ = {'lr': 1e-3}
+            >>> class Sgd(scfg.Config):
+            ...     __default__ = {'momentum': 0.9}
+            >>> class TrainCfg(scfg.Config):
+            ...     __default__ = {
+            ...         'optim': scfg.SubConfig(Adam, choices={'adam': Adam, 'sgd': Sgd}),
+            ...     }
+            >>> cfg = TrainCfg()
+            >>> cfg._read_argv(argv='--optim=sgd --optim.momentum=0.8')
+            >>> assert isinstance(cfg.optim, Sgd) and cfg.optim.momentum == 0.8
+            >>> with pytest.raises(KeyError):
+            ...     cfg._read_argv(argv='--optim.unknown=1', strict=True)
         """
         if isinstance(argv, str):
             import shlex
@@ -1219,32 +1239,28 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             # self.__post_init__()
 
         if special_options:
-            if has_subconfigs:
-                from scriptconfig import subconfig as _subcfg_mod
-                _subcfg_mod.handle_special_dump(self, special_ns)
-            else:
-                import sys
-                dump_fpath = special_ns['dump']
-                do_dumps = special_ns['dumps']
-                if dump_fpath or do_dumps:
-                    if dump_fpath:
-                        # Infer config format from the extension
-                        if dump_fpath.lower().endswith('.json'):
-                            mode = 'json'
-                        elif dump_fpath.lower().endswith('.yaml'):
-                            mode = 'yaml'
-                        else:
-                            mode = 'yaml'
-                        text = self.dumps(mode=mode)
-                        with open(dump_fpath, 'w') as file:
-                            file.write(text)
+            import sys
+            dump_fpath = special_ns['dump']
+            do_dumps = special_ns['dumps']
+            if dump_fpath or do_dumps:
+                if dump_fpath:
+                    # Infer config format from the extension
+                    if dump_fpath.lower().endswith('.json'):
+                        mode = 'json'
+                    elif dump_fpath.lower().endswith('.yaml'):
+                        mode = 'yaml'
+                    else:
+                        mode = 'yaml'
+                    text = self.dumps(mode=mode)
+                    with open(dump_fpath, 'w') as file:
+                        file.write(text)
 
-                    if do_dumps:
-                        # Always use yaml to dump to stdout
-                        text = self.dumps(mode='yaml')
-                        print(text)
+                if do_dumps:
+                    # Always use yaml to dump to stdout
+                    text = self.dumps(mode='yaml')
+                    print(text)
 
-                    sys.exit(1)
+                sys.exit(1)
         return self
 
     def _expand_multipass_parser(self, parser, argv=None, special_options=True,

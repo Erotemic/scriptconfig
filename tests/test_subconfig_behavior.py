@@ -179,3 +179,15 @@ def test_subconfig_class_in_dict():
     data = cfg.to_dict()
     assert data['optim']['__class__'] == 'adam'
     assert data['model']['__class__'] == 'base'
+
+
+def test_subconfig_class_identifier_module_path():
+    class Inner(scfg.Config):
+        __default__ = {'x': 1}
+
+    class Outer(scfg.Config):
+        __default__ = {'inner': scfg.SubConfig(Inner)}
+
+    cfg = Outer()
+    data = cfg.to_dict()
+    assert data['inner']['__class__'] == f'{Inner.__module__}.{Inner.__name__}'

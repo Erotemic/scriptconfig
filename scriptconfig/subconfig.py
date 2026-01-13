@@ -46,7 +46,6 @@ __all__ = [
     'find_subconfig_paths',
     'finalize_post_init',
     'flatten_defaults',
-    'handle_special_dump',
     'scan_config_path',
     'wrap_subconfig_defaults',
 ]
@@ -98,7 +97,7 @@ class SubConfig(Value):
         choices (dict | None): optional registry mapping selector keys to
             Config subclasses.
         allow_import (bool): if True, allow class-path selectors
-            (``module:Class``) to be dynamically imported.
+            (``module.qualname.Class``) to be dynamically imported.
     """
 
     __scfg_class__ = 'SubConfig'
@@ -375,7 +374,8 @@ def _resolve_class_spec(meta: SubConfig, spec, allow_import, localns=None):
     Precedence:
         1. SubConfig registry choices (if provided)
         2. Local namespace class names (bare identifiers)
-        3. Importable module paths (if allow_import)
+        3. Importable module paths (if allow_import), using
+           ``module.qualname.Class``.
     """
     if meta.choices and spec in meta.choices:
         return meta.choices[spec]
@@ -391,10 +391,9 @@ def _resolve_class_spec(meta: SubConfig, spec, allow_import, localns=None):
         if ':' in spec:
             modname, clsname = spec.split(':', 1)
         else:
-            parts = spec.rsplit('.', 1)
-            if len(parts) != 2:
+            modname, clsname = spec.rsplit('.', 1)
+            if not modname or not clsname:
                 raise ValueError(f'Cannot interpret class spec {spec!r}')
-            modname, clsname = parts
         import importlib
         mod = importlib.import_module(modname)
         if not hasattr(mod, clsname):
@@ -560,29 +559,8 @@ def finalize_post_init(cfg):
                 finalize_post_init(value)
 
 
-def handle_special_dump(cfg, special_ns):
-    import sys
-    dump_fpath = special_ns.get('dump')
-    do_dumps = special_ns.get('dumps')
-    if dump_fpath or do_dumps:
-        if dump_fpath:
-            if dump_fpath.lower().endswith('.json'):
-                mode = 'json'
-            elif dump_fpath.lower().endswith('.yaml'):
-                mode = 'yaml'
-            else:
-                mode = 'yaml'
-            text = cfg.dumps(mode=mode)
-            with open(dump_fpath, 'w') as file:
-                file.write(text)
-        if do_dumps:
-            text = cfg.dumps(mode='yaml')
-            print(text)
-        sys.exit(1)
-
-
 def _class_identifier(cls):
-    return f'{cls.__module__}:{cls.__name__}'
+    return f'{cls.__module__}.{cls.__name__}'
 
 
 def find_subconfig_paths(cfg):
