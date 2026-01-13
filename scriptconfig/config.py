@@ -1251,7 +1251,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         Expand an argparse parser for configs with nested SubConfig nodes.
 
         This staged parse realizes selector overrides first, then rebuilds a
-        parser for the realized tree so the remaining argv can be parsed in a
+        parser for the realized tree so the full argv can be parsed in a
         single pass with the standard logic in _read_argv.
         """
         import inspect
@@ -1295,7 +1295,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             )
 
         if allow_subconfig_overrides:
-            selector_updates, stage2_argv = _subcfg_mod.extract_selector_overrides(
+            selector_updates, _stage2_argv = _subcfg_mod.extract_selector_overrides(
                 self, argv_list, allow_import=allow_import, localns=localns
             )
             if selector_updates:
@@ -1309,8 +1309,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
             parser = flat_helper.argparse(special_options=special_options)
             _subcfg_mod.add_forbidden_selector_args(parser, self)
-            stage2_argv = argv_list
-        return parser, stage2_argv
+            _stage2_argv = argv_list
+        return parser, argv_list
 
     def __post_init__(self):
         """ overloadable function called after each load """

@@ -516,7 +516,9 @@ def flatten_defaults(cfg, prefix=(), include_class_options=False):
     for key, value in cfg._data.items():
         if key in getattr(cfg, '_subconfig_meta', {}):
             if include_class_options:
+                selector_key = '.'.join(prefix + (key,))
                 class_key = '.'.join(prefix + (key, '__class__'))
+                flat[selector_key] = Value(None, help=f'{key} implementation selector')
                 flat[class_key] = Value(None, help=f'{key} implementation selector')
             if isinstance(value, Config):
                 flat.update(flatten_defaults(value, prefix + (key,), include_class_options))
