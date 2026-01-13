@@ -620,11 +620,6 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             value = value.value
         return value
 
-    def __contains__(self, key):
-        if getattr(self, '_data', None) is None:
-            return False
-        return key in self.keys()
-
     def setitem(self, key, value):
         """
         Dictionary-like method to set the value of a key.
@@ -1144,7 +1139,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             # then rebuild a parser for the realized tree before parsing values.
             from scriptconfig import subconfig as _subcfg_mod
             localns = _subcfg_mod.resolve_localns(localns, stacklevel)
-            parser, argv = self._expand_multipass_parser(
+            parser, argv = _subcfg_mod.expand_multipass_parser(
+                self,
                 parser=parser,
                 argv=argv,
                 special_options=special_options,
@@ -1313,75 +1309,6 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
                 sys.exit(1)
         return self
-
-    def _expand_multipass_parser(self, parser, argv=None, special_options=True,
-                                 allow_import=True, allow_subconfig_overrides=True,
-                                 pending_updates=None, localns=None, stacklevel=None):
-        """
-        Expand an argparse parser for configs with nested SubConfig nodes.
-
-        This staged parse realizes selector overrides first, then rebuilds a
-        parser for the realized tree so the full argv can be parsed in a
-        single pass with the standard logic in _read_argv.
-        """
-        from scriptconfig import subconfig as _subcfg_mod
-
-        argv_list, _want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
-
-        if special_options:
-            config_fpath = _subcfg_mod.scan_config_path(argv_list)
-            if config_fpath is not None:
-                cfg_updates = _subcfg_mod.coerce_data_updates(config_fpath)
-                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
-                    raise ValueError(
-                        'SubConfig selection overrides require allow_subconfig_overrides=True'
-                    )
-                _subcfg_mod.apply_dot_updates(
-                    self,
-                    cfg_updates,
-                    allow_import=allow_import,
-                    localns=localns,
-                    stacklevel=stacklevel,
-                )
-
-        if pending_updates is not None:
-            cfg_updates = pending_updates
-            if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
-                raise ValueError(
-                    'SubConfig selection overrides require allow_subconfig_overrides=True'
-                )
-            _subcfg_mod.apply_dot_updates(
-                self,
-                cfg_updates,
-                allow_import=allow_import,
-                localns=localns,
-                stacklevel=stacklevel,
-            )
-
-        if allow_subconfig_overrides:
-            selector_updates, _stage2_argv = _subcfg_mod.extract_selector_overrides(
-                self,
-                argv_list,
-                allow_import=allow_import,
-                localns=localns,
-                stacklevel=stacklevel,
-            )
-            if selector_updates:
-                _subcfg_mod.apply_dot_updates(
-                    self,
-                    selector_updates,
-                    allow_import=allow_import,
-                    localns=localns,
-                    stacklevel=stacklevel,
-                )
-            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
-            parser = flat_helper.argparse(special_options=special_options)
-        else:
-            # Static parse path: disallow selector overrides and fail early.
-            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
-            parser = flat_helper.argparse(special_options=special_options)
-            _subcfg_mod.add_forbidden_selector_args(parser, self)
-        return parser, argv_list
 
     def __post_init__(self):
         """ overloadable function called after each load """
@@ -2151,7 +2078,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                     'SubConfig selection overrides require multipass parsing; use cli()'
                 )
             from scriptconfig import subconfig as _subcfg_mod
-            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
+            flat_helper = _subcfg_mod.flat_config_from_tree(self, include_class_options=False)
             parser = flat_helper.argparse(parser=parser, special_options=special_options)
             _subcfg_mod.add_forbidden_selector_args(parser, self)
             return parser

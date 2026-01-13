@@ -40,11 +40,13 @@ __all__ = [
     'config_to_nested_dict',
     'coerce_argv',
     'coerce_data_updates',
+    'expand_multipass_parser',
     'ensure_subconfigs_instantiated',
     'extract_selector_overrides',
     'has_selector_overrides',
     'find_subconfig_paths',
     'finalize_post_init',
+    'flat_config_from_tree',
     'flatten_defaults',
     'get_stack_frame',
     'resolve_localns',
@@ -590,19 +592,82 @@ def flatten_defaults(cfg, prefix=(), include_class_options=False):
     return flat
 
 
-class _FlatConfig(Config):
+def flat_config_from_tree(cfg, include_class_options=False):
     """
-    Helper Config used to parse realized leaf arguments via argparse.
+    Build a temporary Config instance to parse realized leaf arguments.
     """
+    defaults = flatten_defaults(cfg, include_class_options=include_class_options)
+    name = f'_Flat_{cfg.__class__.__name__}'
+    FlatCls = type(name, (Config,), {'__default__': defaults})
+    return FlatCls(_dont_call_post_init=True)
 
-    __default__ = {}
 
-    @classmethod
-    def from_tree(cls, cfg, include_class_options=False):
-        defaults = flatten_defaults(cfg, include_class_options=include_class_options)
-        name = f'_Flat_{cfg.__class__.__name__}'
-        FlatCls = type(name, (Config,), {'__default__': defaults})
-        return FlatCls(_dont_call_post_init=True)
+def expand_multipass_parser(cfg, parser, argv=None, special_options=True,
+                            allow_import=True, allow_subconfig_overrides=True,
+                            pending_updates=None, localns=None, stacklevel=None):
+    """
+    Expand an argparse parser for configs with nested SubConfig nodes.
+
+    This staged parse realizes selector overrides first, then rebuilds a
+    parser for the realized tree so the full argv can be parsed in a
+    single pass with the standard logic in _read_argv.
+    """
+    argv_list, _want_help = coerce_argv(True if argv is None else argv)
+
+    if special_options:
+        config_fpath = scan_config_path(argv_list)
+        if config_fpath is not None:
+            cfg_updates = coerce_data_updates(config_fpath)
+            if not allow_subconfig_overrides and has_selector_overrides(cfg, cfg_updates):
+                raise ValueError(
+                    'SubConfig selection overrides require allow_subconfig_overrides=True'
+                )
+            apply_dot_updates(
+                cfg,
+                cfg_updates,
+                allow_import=allow_import,
+                localns=localns,
+                stacklevel=stacklevel,
+            )
+
+    if pending_updates is not None:
+        cfg_updates = pending_updates
+        if not allow_subconfig_overrides and has_selector_overrides(cfg, cfg_updates):
+            raise ValueError(
+                'SubConfig selection overrides require allow_subconfig_overrides=True'
+            )
+        apply_dot_updates(
+            cfg,
+            cfg_updates,
+            allow_import=allow_import,
+            localns=localns,
+            stacklevel=stacklevel,
+        )
+
+    if allow_subconfig_overrides:
+        selector_updates, _stage2_argv = extract_selector_overrides(
+            cfg,
+            argv_list,
+            allow_import=allow_import,
+            localns=localns,
+            stacklevel=stacklevel,
+        )
+        if selector_updates:
+            apply_dot_updates(
+                cfg,
+                selector_updates,
+                allow_import=allow_import,
+                localns=localns,
+                stacklevel=stacklevel,
+            )
+        flat_helper = flat_config_from_tree(cfg, include_class_options=True)
+        parser = flat_helper.argparse(special_options=special_options)
+    else:
+        # Static parse path: disallow selector overrides and fail early.
+        flat_helper = flat_config_from_tree(cfg, include_class_options=False)
+        parser = flat_helper.argparse(special_options=special_options)
+        add_forbidden_selector_args(parser, cfg)
+    return parser, argv_list
 
 
 def finalize_post_init(cfg):
