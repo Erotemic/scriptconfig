@@ -981,6 +981,113 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                     _alias_map[a] = k
         return _alias_map
 
+    def _read_argv_subconfig(self, argv=None, special_options=True, strict=False,
+                             autocomplete=False, allow_import=True,
+                             allow_subconfig_overrides=True, pending_updates=None,
+                             localns=None):
+        import inspect
+        from scriptconfig import subconfig as _subcfg_mod
+
+        argv_list, want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
+
+        if localns is None:
+            frame = inspect.currentframe()
+            try:
+                caller = frame.f_back if frame is not None else None
+                if caller is not None and caller.f_code.co_name in {'load', 'cli'}:
+                    caller = caller.f_back
+                localns = {}
+                if caller is not None:
+                    localns.update(caller.f_globals)
+                    localns.update(caller.f_locals)
+            finally:
+                del frame
+
+        if special_options:
+            config_fpath = _subcfg_mod.scan_config_path(argv_list)
+            if config_fpath is not None:
+                cfg_updates = _subcfg_mod.coerce_data_updates(config_fpath)
+                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
+                    raise ValueError(
+                        'SubConfig selection overrides require allow_subconfig_overrides=True'
+                    )
+                _subcfg_mod.apply_dot_updates(
+                    self, cfg_updates, allow_import=allow_import, localns=localns
+                )
+
+        if pending_updates is not None:
+            cfg_updates = pending_updates
+            if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
+                raise ValueError(
+                    'SubConfig selection overrides require allow_subconfig_overrides=True'
+                )
+            _subcfg_mod.apply_dot_updates(
+                self, cfg_updates, allow_import=allow_import, localns=localns
+            )
+
+        if allow_subconfig_overrides:
+            selector_updates, stage2_argv = _subcfg_mod.extract_selector_overrides(
+                self, argv_list, allow_import=allow_import, localns=localns
+            )
+            if selector_updates:
+                _subcfg_mod.apply_dot_updates(
+                    self, selector_updates, allow_import=allow_import, localns=localns
+                )
+            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
+            parser = flat_helper.argparse(special_options=special_options)
+        else:
+            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
+            parser = flat_helper.argparse(special_options=special_options)
+            _subcfg_mod.add_forbidden_selector_args(parser, self)
+            stage2_argv = argv_list
+
+        if autocomplete:
+            try:
+                import argcomplete as argcomplete_mod
+            except ImportError:
+                if autocomplete != 'auto':
+                    raise
+            else:
+                argcomplete_mod.autocomplete(parser)
+
+        try:
+            if strict:
+                ns_obj, extras = parser.parse_known_args(stage2_argv)
+                if extras:
+                    unknown = ' '.join(extras)
+                    raise KeyError(f'Unknown configuration options: {unknown}')
+            else:
+                ns_obj = parser.parse_known_args(stage2_argv)[0]
+            ns = ns_obj.__dict__
+        except (ValueError, TypeError, KeyError) as ex:
+            from scriptconfig.util import util_exception
+            note = ub.codeblock(
+                f'''
+                Error while attempting to parse arguments in _read_argv
+
+                Context:
+                    argv = {stage2_argv!r}
+                    special_options = {special_options!r}
+                    strict = {strict!r}
+                    autocomplete = {autocomplete!r}
+                    self = {self!r}
+                ''')
+            print(note)
+            ex = util_exception.add_exception_note(ex, note)
+            raise ex
+
+        special_ns = {}
+        if special_options:
+            special_ns = {k: ns.pop(k, None) for k in ['config', 'dump', 'dumps']}
+
+        explicit = getattr(parser, '_explicitly_given', set())
+        explicit_updates = {k: v for k, v in ns.items() if k in explicit}
+        if explicit_updates:
+            _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
+
+        if special_options:
+            _subcfg_mod.handle_special_dump(self, special_ns)
+
     def _read_argv(self, argv=None, special_options=True, strict=False, autocomplete=False,
                    allow_import=True, allow_subconfig_overrides=True, pending_updates=None,
                    localns=None):
@@ -1081,61 +1188,19 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             argv = shlex.split(argv)
 
         if getattr(self, '_has_subconfigs', False):
-            import inspect
-            from scriptconfig import subconfig as _subcfg_mod
-
-            argv_list, want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
-
-            if localns is None:
-                frame = inspect.currentframe()
-                try:
-                    caller = frame.f_back if frame is not None else None
-                    if caller is not None and caller.f_code.co_name in {'load', 'cli'}:
-                        caller = caller.f_back
-                    localns = {}
-                    if caller is not None:
-                        localns.update(caller.f_globals)
-                        localns.update(caller.f_locals)
-                finally:
-                    del frame
-
-            if special_options:
-                config_fpath = _subcfg_mod.scan_config_path(argv_list)
-                if config_fpath is not None:
-                    cfg_updates = _subcfg_mod.coerce_data_updates(config_fpath)
-                    if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
-                        raise ValueError(
-                            'SubConfig selection overrides require allow_subconfig_overrides=True'
-                        )
-                    _subcfg_mod.apply_dot_updates(
-                        self, cfg_updates, allow_import=allow_import, localns=localns
-                    )
-
-            if pending_updates is not None:
-                cfg_updates = pending_updates
-                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
-                    raise ValueError(
-                        'SubConfig selection overrides require allow_subconfig_overrides=True'
-                    )
-                _subcfg_mod.apply_dot_updates(
-                    self, cfg_updates, allow_import=allow_import, localns=localns
-                )
-
-            if allow_subconfig_overrides:
-                selector_updates, stage2_argv = _subcfg_mod.extract_selector_overrides(
-                    self, argv_list, allow_import=allow_import, localns=localns
-                )
-                if selector_updates:
-                    _subcfg_mod.apply_dot_updates(
-                        self, selector_updates, allow_import=allow_import, localns=localns
-                    )
-                flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
-                parser = flat_helper.argparse(special_options=special_options)
-            else:
-                flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
-                parser = flat_helper.argparse(special_options=special_options)
-                _subcfg_mod.add_forbidden_selector_args(parser, self)
-                stage2_argv = argv_list
+            self._read_argv_subconfig(
+                argv=argv,
+                special_options=special_options,
+                strict=strict,
+                autocomplete=autocomplete,
+                allow_import=allow_import,
+                allow_subconfig_overrides=allow_subconfig_overrides,
+                pending_updates=pending_updates,
+                localns=localns,
+            )
+        else:
+            # TODO: warn about any unused flags
+            parser = self.argparse(special_options=special_options)
 
             if autocomplete:
                 try:
@@ -1148,21 +1213,21 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
             try:
                 if strict:
-                    ns_obj, extras = parser.parse_known_args(stage2_argv)
-                    if extras:
-                        unknown = ' '.join(extras)
-                        raise KeyError(f'Unknown configuration options: {unknown}')
+                    ns = parser.parse_args(argv).__dict__
                 else:
-                    ns_obj = parser.parse_known_args(stage2_argv)[0]
-                ns = ns_obj.__dict__
-            except (ValueError, TypeError, KeyError) as ex:
+                    ns = parser.parse_known_args(argv)[0].__dict__
+            except (ValueError, TypeError) as ex:
+                # For errors (like ValueError) where its probably a programmer
+                # error and not a user error, give the debugger some information
+                # about the scriptconfig object.
                 from scriptconfig.util import util_exception
+                # TODO: figure out argv that triggers a value error so we can add a test
                 note = ub.codeblock(
                     f'''
                     Error while attempting to parse arguments in _read_argv
 
                     Context:
-                        argv = {stage2_argv!r}
+                        argv = {argv!r}
                         special_options = {special_options!r}
                         strict = {strict!r}
                         autocomplete = {autocomplete!r}
@@ -1172,150 +1237,99 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 ex = util_exception.add_exception_note(ex, note)
                 raise ex
 
-            special_ns = {}
+            special_ns_keys = ['config', 'dump', 'dumps']
             if special_options:
-                special_ns = {k: ns.pop(k, None) for k in ['config', 'dump', 'dumps']}
-
-            explicit = getattr(parser, '_explicitly_given', set())
-            explicit_updates = {k: v for k, v in ns.items() if k in explicit}
-            if explicit_updates:
-                _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
-
-            if special_options:
-                _subcfg_mod.handle_special_dump(self, special_ns)
-            return self
-
-        # TODO: warn about any unused flags
-        parser = self.argparse(special_options=special_options)
-
-        if autocomplete:
-            try:
-                import argcomplete as argcomplete_mod
-            except ImportError:
-                if autocomplete != 'auto':
-                    raise
+                special_ns = {k: ns.pop(k, None) for k in special_ns_keys}
             else:
-                argcomplete_mod.autocomplete(parser)
+                special_ns = {}
 
-        try:
-            if strict:
-                ns = parser.parse_args(argv).__dict__
-            else:
-                ns = parser.parse_known_args(argv)[0].__dict__
-        except (ValueError, TypeError) as ex:
-            # For errors (like ValueError) where its probably a programmer
-            # error and not a user error, give the debugger some information
-            # about the scriptconfig object.
-            from scriptconfig.util import util_exception
-            # TODO: figure out argv that triggers a value error so we can add a test
-            note = ub.codeblock(
-                f'''
-                Error while attempting to parse arguments in _read_argv
+            # We might remove code under this if using action casting proves to be
+            # stable.
+            RELY_ON_ACTION_SMARTCAST = True
 
-                Context:
-                    argv = {argv!r}
-                    special_options = {special_options!r}
-                    strict = {strict!r}
-                    autocomplete = {autocomplete!r}
-                    self = {self!r}
-                ''')
-            print(note)
-            ex = util_exception.add_exception_note(ex, note)
-            raise ex
-
-        special_ns_keys = ['config', 'dump', 'dumps']
-        if special_options:
-            special_ns = {k: ns.pop(k, None) for k in special_ns_keys}
-        else:
-            special_ns = {}
-
-        # We might remove code under this if using action casting proves to be
-        # stable.
-        RELY_ON_ACTION_SMARTCAST = True
-
-        # First load argparse defaults in first
-        _not_given = set(ns.keys()) - parser._explicitly_given
-        # print('_not_given = {!r}'.format(_not_given))
-        # print('parser._explicitly_given = {!r}'.format(parser._explicitly_given))
-        for key in _not_given:
-            value = ns[key]
-            # NOTE: this implementation is messy and needs refactor.
-            # Currently the .__default__ .default, ._default, and ._data
-            # attributes can all be Value objects, but this gets messy when the
-            # "default" constructor argument is used. We should refactor so
-            # _data and _default only store the raw current values,
-            # post-casting.
-            if key not in self.__default__:
-                # probably an alias
-                continue
-
-            if not RELY_ON_ACTION_SMARTCAST:
-                # Old way that we did smartcast. Hopefully the action class
-                # takes care of this.
-                template = self.__default__[key]
-                # print('template = {!r}'.format(template))
-                if not isinstance(template, Value):
-                    # smartcast non-valued params from commandline
-                    value = smartcast.smartcast(value)
-                else:
-                    value = template.cast(value)
-
-            # if value is not None:
-            self[key] = value
-
-        # Then load config file defaults
-        if special_options:
-            config_fpath = special_ns['config']
-            if config_fpath is not None:
-                self.load(config_fpath, cmdline=False,
-                          _dont_call_post_init=True)
-
-        # Finally load explicit CLI values
-        for key in parser._explicitly_given:
-            if key not in special_ns:
+            # First load argparse defaults in first
+            _not_given = set(ns.keys()) - parser._explicitly_given
+            # print('_not_given = {!r}'.format(_not_given))
+            # print('parser._explicitly_given = {!r}'.format(parser._explicitly_given))
+            for key in _not_given:
                 value = ns[key]
+                # NOTE: this implementation is messy and needs refactor.
+                # Currently the .__default__ .default, ._default, and ._data
+                # attributes can all be Value objects, but this gets messy when the
+                # "default" constructor argument is used. We should refactor so
+                # _data and _default only store the raw current values,
+                # post-casting.
+                if key not in self.__default__:
+                    # probably an alias
+                    continue
 
                 if not RELY_ON_ACTION_SMARTCAST:
                     # Old way that we did smartcast. Hopefully the action class
                     # takes care of this.
-
                     template = self.__default__[key]
-
-                    # print('value = {!r}'.format(value))
                     # print('template = {!r}'.format(template))
                     if not isinstance(template, Value):
                         # smartcast non-valued params from commandline
                         value = smartcast.smartcast(value)
+                    else:
+                        value = template.cast(value)
 
                 # if value is not None:
                 self[key] = value
 
-        # We dont want this here right?
-        # self.__post_init__()
+            # Then load config file defaults
+            if special_options:
+                config_fpath = special_ns['config']
+                if config_fpath is not None:
+                    self.load(config_fpath, cmdline=False,
+                              _dont_call_post_init=True)
 
-        if special_options:
-            import sys
-            dump_fpath = special_ns['dump']
-            do_dumps = special_ns['dumps']
-            if dump_fpath or do_dumps:
-                if dump_fpath:
-                    # Infer config format from the extension
-                    if dump_fpath.lower().endswith('.json'):
-                        mode = 'json'
-                    elif dump_fpath.lower().endswith('.yaml'):
-                        mode = 'yaml'
-                    else:
-                        mode = 'yaml'
-                    text = self.dumps(mode=mode)
-                    with open(dump_fpath, 'w') as file:
-                        file.write(text)
+            # Finally load explicit CLI values
+            for key in parser._explicitly_given:
+                if key not in special_ns:
+                    value = ns[key]
 
-                if do_dumps:
-                    # Always use yaml to dump to stdout
-                    text = self.dumps(mode='yaml')
-                    print(text)
+                    if not RELY_ON_ACTION_SMARTCAST:
+                        # Old way that we did smartcast. Hopefully the action class
+                        # takes care of this.
 
-                sys.exit(1)
+                        template = self.__default__[key]
+
+                        # print('value = {!r}'.format(value))
+                        # print('template = {!r}'.format(template))
+                        if not isinstance(template, Value):
+                            # smartcast non-valued params from commandline
+                            value = smartcast.smartcast(value)
+
+                    # if value is not None:
+                    self[key] = value
+
+            # We dont want this here right?
+            # self.__post_init__()
+
+            if special_options:
+                import sys
+                dump_fpath = special_ns['dump']
+                do_dumps = special_ns['dumps']
+                if dump_fpath or do_dumps:
+                    if dump_fpath:
+                        # Infer config format from the extension
+                        if dump_fpath.lower().endswith('.json'):
+                            mode = 'json'
+                        elif dump_fpath.lower().endswith('.yaml'):
+                            mode = 'yaml'
+                        else:
+                            mode = 'yaml'
+                        text = self.dumps(mode=mode)
+                        with open(dump_fpath, 'w') as file:
+                            file.write(text)
+
+                    if do_dumps:
+                        # Always use yaml to dump to stdout
+                        text = self.dumps(mode='yaml')
+                        print(text)
+
+                    sys.exit(1)
         return self
 
     def __post_init__(self):
