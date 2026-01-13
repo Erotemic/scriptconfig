@@ -1106,17 +1106,19 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 argcomplete_mod.autocomplete(parser)
 
         try:
-            if has_subconfigs:
-                ns_obj, extras = parser.parse_known_args(argv)
-                if strict and extras:
-                    unknown = ' '.join(extras)
-                    raise KeyError(f'Unknown configuration options: {unknown}')
-                ns = ns_obj.__dict__
-            else:
-                if strict:
-                    ns = parser.parse_args(argv).__dict__
+            if strict:
+                if has_subconfigs:
+                    # In subconfig mode we want an explicit KeyError for
+                    # unknown dotted keys instead of argparse exiting.
+                    ns_obj, extras = parser.parse_known_args(argv)
+                    if extras:
+                        unknown = ' '.join(extras)
+                        raise KeyError(f'Unknown configuration options: {unknown}')
+                    ns = ns_obj.__dict__
                 else:
-                    ns = parser.parse_known_args(argv)[0].__dict__
+                    ns = parser.parse_args(argv).__dict__
+            else:
+                ns = parser.parse_known_args(argv)[0].__dict__
         except (ValueError, TypeError, KeyError) as ex:
             # For errors (like ValueError) where its probably a programmer
             # error and not a user error, give the debugger some information
@@ -1144,6 +1146,9 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         else:
             special_ns = {}
 
+        # We might remove code under this if using action casting proves to be
+        # stable.
+        RELY_ON_ACTION_SMARTCAST = True
         if has_subconfigs:
             # Subconfig updates use dotted keys and need to respect selector
             # overrides, so apply explicit updates through subconfig helpers.
@@ -1152,13 +1157,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             explicit_updates = {k: v for k, v in ns.items() if k in explicit}
             if explicit_updates:
                 _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
-            if special_options:
-                _subcfg_mod.handle_special_dump(self, special_ns)
         else:
-            # We might remove code under this if using action casting proves to be
-            # stable.
-            RELY_ON_ACTION_SMARTCAST = True
-
             # First load argparse defaults in first
             _not_given = set(ns.keys()) - parser._explicitly_given
             # print('_not_given = {!r}'.format(_not_given))
@@ -1219,7 +1218,11 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             # We dont want this here right?
             # self.__post_init__()
 
-            if special_options:
+        if special_options:
+            if has_subconfigs:
+                from scriptconfig import subconfig as _subcfg_mod
+                _subcfg_mod.handle_special_dump(self, special_ns)
+            else:
                 import sys
                 dump_fpath = special_ns['dump']
                 do_dumps = special_ns['dumps']
@@ -1309,7 +1312,6 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
             parser = flat_helper.argparse(special_options=special_options)
             _subcfg_mod.add_forbidden_selector_args(parser, self)
-            _stage2_argv = argv_list
         return parser, argv_list
 
     def __post_init__(self):
