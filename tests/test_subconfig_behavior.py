@@ -44,16 +44,19 @@ def test_flat_fastpath():
 
 
 def test_nested_leaf_override_via_cli():
-    cfg = TrainConfig.cli(argv=['--optim.lr=0.02'])
+    cfg = TrainConfig.cli(argv=['--optim.lr=0.02'], allow_subconfig_overrides=True)
     assert cfg.optim.lr == pytest.approx(0.02)
 
 
 def test_selector_via_dunder_class_and_sugar():
-    cfg = TrainConfig.cli(argv=['--optim.__class__=sgd', '--optim.momentum=0.7'])
+    cfg = TrainConfig.cli(
+        argv=['--optim.__class__=sgd', '--optim.momentum=0.7'],
+        allow_subconfig_overrides=True,
+    )
     assert isinstance(cfg.optim, SGDConfig)
     assert cfg.optim.momentum == pytest.approx(0.7)
 
-    cfg2 = TrainConfig.cli(argv=['--optim=sgd', '--optim.momentum=0.5'])
+    cfg2 = TrainConfig.cli(argv=['--optim=sgd', '--optim.momentum=0.5'], allow_subconfig_overrides=True)
     assert isinstance(cfg2.optim, SGDConfig)
     assert cfg2.optim.momentum == pytest.approx(0.5)
 
@@ -63,7 +66,7 @@ def test_nested_selector_and_deep_leaves():
         '--model=seg',
         '--model.backbone=vit',
         '--model.backbone.patch=16',
-    ])
+    ], allow_subconfig_overrides=True)
     assert isinstance(cfg.model, SegformerConfig)
     assert isinstance(cfg.model.backbone, BackboneConfig)
     assert cfg.model.backbone.patch == 16
@@ -71,7 +74,7 @@ def test_nested_selector_and_deep_leaves():
 
 def test_variant_aware_help(capsys):
     with pytest.raises(SystemExit):
-        TrainConfig.cli(argv=['--model=seg', '--help'])
+        TrainConfig.cli(argv=['--model=seg', '--help'], allow_subconfig_overrides=True)
     out = capsys.readouterr().out
     assert 'model.backbone.patch' in out
 
@@ -89,7 +92,11 @@ def test_precedence_default_file_kwargs_cli(tmp_path):
     cfg_path.write_text(cfg_text)
     kw_overrides = {'epochs': 8}
     cli_overrides = ['--epochs=12']
-    cfg = TrainConfig.cli(data=kw_overrides, argv=['--config', str(cfg_path), *cli_overrides])
+    cfg = TrainConfig.cli(
+        data=kw_overrides,
+        argv=['--config', str(cfg_path), *cli_overrides],
+        allow_subconfig_overrides=True,
+    )
     assert isinstance(cfg.optim, SGDConfig)
     assert cfg.optim.lr == pytest.approx(0.2)
     assert cfg.epochs == 12
@@ -97,7 +104,7 @@ def test_precedence_default_file_kwargs_cli(tmp_path):
 
 def test_unknown_key_error():
     with pytest.raises(KeyError):
-        TrainConfig.cli(argv=['--optim.unknown=1'])
+        TrainConfig.cli(argv=['--optim.unknown=1'], allow_subconfig_overrides=True)
 
 
 def test_reserved_class_name_error():
@@ -143,7 +150,7 @@ def test_dump_and_load_roundtrip(tmp_path):
             'root': 3,
         }
 
-    cfg = Outer.cli(argv=['--inner=b', '--inner.x=10'])
+    cfg = Outer.cli(argv=['--inner=b', '--inner.x=10'], allow_subconfig_overrides=True)
     out_path = tmp_path / 'cfg.yaml'
     with open(out_path, 'w') as file:
         cfg.dump(stream=file)
@@ -153,3 +160,22 @@ def test_dump_and_load_roundtrip(tmp_path):
     assert isinstance(cfg2['inner'], ChoiceB)
     assert cfg2['inner'].x == 10
     assert cfg2['root'] == 3
+
+
+def test_subconfig_overrides_disabled(capsys):
+    cfg = TrainConfig.cli(argv=['--optim.beta1=0.3'], allow_subconfig_overrides=False)
+    assert cfg.optim.beta1 == pytest.approx(0.3)
+
+    with pytest.raises(SystemExit):
+        TrainConfig.cli(argv=['--optim=sgd'], allow_subconfig_overrides=False)
+    err = capsys.readouterr().err
+    assert 'allow_subconfig_overrides=True' in err
+    with pytest.raises(SystemExit):
+        TrainConfig.cli(argv=['--optim.__class__=sgd'], allow_subconfig_overrides=False)
+
+
+def test_subconfig_class_in_dict():
+    cfg = TrainConfig.cli(argv=[], allow_subconfig_overrides=False)
+    data = cfg.to_dict()
+    assert data['optim']['__class__'] == 'adam'
+    assert data['model']['__class__'] == 'base'

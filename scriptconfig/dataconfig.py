@@ -62,6 +62,7 @@ import ubelt as ub
 from scriptconfig import diagnostics
 from scriptconfig.subconfig import (
     SubConfig,
+    add_forbidden_selector_args,
     apply_dot_updates,
     class_has_subconfigs,
     coerce_argv,
@@ -69,6 +70,7 @@ from scriptconfig.subconfig import (
     config_to_nested_dict,
     ensure_subconfigs_instantiated,
     extract_selector_overrides,
+    has_selector_overrides,
     finalize_post_init,
     handle_special_dump,
     _FlatConfig,
@@ -432,13 +434,23 @@ class DataConfig(Config, metaclass=MetaDataConfig):
     @classmethod
     def cli(cls, data=None, default=None, argv=None, strict=True,
             cmdline=True, autocomplete='auto', special_options=True,
-            transition_helpers=True, verbose=False, allow_import=False):
+            transition_helpers=True, verbose=False, allow_import=True,
+            allow_subconfig_overrides=True):
         """
         Command-line aware constructor with nested SubConfig support.
 
         Uses a staged parse when SubConfig fields are present. If the config is
         flat (no SubConfig entries) this dispatches to the legacy fast-path to
         avoid any overhead.
+
+        Args:
+            allow_import (bool):
+                If True, allow module path selectors like ``pkg.mod:Class``
+                for SubConfig selection. Defaults to True.
+            allow_subconfig_overrides (bool):
+                If True, enable multipass CLI parsing to allow SubConfig
+                selection overrides. If False, only the default realized tree
+                is parsed and selector args error at parse time.
         """
         if not cls._class_has_subconfigs():
             return super().cli(data=data, default=default, argv=argv,
@@ -446,8 +458,11 @@ class DataConfig(Config, metaclass=MetaDataConfig):
                                autocomplete=autocomplete,
                                special_options=special_options,
                                transition_helpers=transition_helpers,
-                               verbose=verbose)
+                               verbose=verbose,
+                               allow_import=allow_import,
+                               allow_subconfig_overrides=allow_subconfig_overrides)
 
+        import inspect
         import sys
         if diagnostics.DEBUG_CONFIG:
             print(f'[scriptconfig.dataconfig.DataConfig] Call {cls.__name__}.cli (nested mode)')
@@ -465,6 +480,16 @@ class DataConfig(Config, metaclass=MetaDataConfig):
         ensure_subconfigs_instantiated(self, _dont_call_post_init=True)
 
         argv_list, want_help = coerce_argv(cmdline)
+        # Capture caller namespace for evaluating bare class names in selectors.
+        frame = inspect.currentframe()
+        try:
+            caller = frame.f_back if frame is not None else None
+            localns = {}
+            if caller is not None:
+                localns.update(caller.f_globals)
+                localns.update(caller.f_locals)
+        finally:
+            del frame
 
         config_fpath = None
         if special_options:
@@ -472,20 +497,37 @@ class DataConfig(Config, metaclass=MetaDataConfig):
 
         if config_fpath is not None:
             cfg_updates = coerce_data_updates(config_fpath)
-            apply_dot_updates(self, cfg_updates, allow_import=allow_import)
+            if not allow_subconfig_overrides and has_selector_overrides(self, cfg_updates):
+                raise ValueError(
+                    'SubConfig selection overrides require allow_subconfig_overrides=True'
+                )
+            apply_dot_updates(self, cfg_updates, allow_import=allow_import, localns=localns)
 
         if data is not None:
             cfg_updates = coerce_data_updates(data)
-            apply_dot_updates(self, cfg_updates, allow_import=allow_import)
+            if not allow_subconfig_overrides and has_selector_overrides(self, cfg_updates):
+                raise ValueError(
+                    'SubConfig selection overrides require allow_subconfig_overrides=True'
+                )
+            apply_dot_updates(self, cfg_updates, allow_import=allow_import, localns=localns)
 
-        # Stage 1: extract selectors from argv and realize tree iteratively
-        selector_updates, stage2_argv = extract_selector_overrides(self, argv_list, allow_import=allow_import)
-        if selector_updates:
-            apply_dot_updates(self, selector_updates, allow_import=allow_import)
+        if allow_subconfig_overrides:
+            # Stage 1: extract selectors from argv and realize tree iteratively
+            selector_updates, stage2_argv = extract_selector_overrides(
+                self, argv_list, allow_import=allow_import, localns=localns
+            )
+            if selector_updates:
+                apply_dot_updates(self, selector_updates, allow_import=allow_import, localns=localns)
 
-        # Stage 2: build a parser for realized leaves and parse remaining args
-        flat_helper = _FlatConfig.from_tree(self, include_class_options=True)
-        parser = flat_helper.argparse(special_options=special_options)
+            # Stage 2: build a parser for realized leaves and parse remaining args
+            flat_helper = _FlatConfig.from_tree(self, include_class_options=True)
+            parser = flat_helper.argparse(special_options=special_options)
+        else:
+            # Static parser: selection overrides are disallowed and error at parse-time.
+            flat_helper = _FlatConfig.from_tree(self, include_class_options=False)
+            parser = flat_helper.argparse(special_options=special_options)
+            add_forbidden_selector_args(parser, self)
+            stage2_argv = argv_list
 
         if autocomplete:
             try:
@@ -529,7 +571,7 @@ class DataConfig(Config, metaclass=MetaDataConfig):
         explicit = getattr(parser, '_explicitly_given', set())
         explicit_updates = {k: v for k, v in ns.items() if k in explicit}
         if explicit_updates:
-            apply_dot_updates(self, explicit_updates, allow_import=allow_import)
+            apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
 
         finalize_post_init(self)
 
@@ -556,9 +598,19 @@ class DataConfig(Config, metaclass=MetaDataConfig):
 
     def load(self, data=None, cmdline=False, mode=None, default=None,
              strict=False, autocomplete=False, _dont_call_post_init=False,
-             special_options=True, allow_import=False):
+             special_options=True, allow_import=True,
+             allow_subconfig_overrides=True):
         """
         Override to support nested SubConfig-aware updates.
+
+        Args:
+            allow_import (bool):
+                If True, allow module path selectors like ``pkg.mod:Class``
+                for SubConfig selection. Defaults to True.
+            allow_subconfig_overrides (bool):
+                If True, enable multipass CLI parsing to allow SubConfig
+                selection overrides. If False, only the default realized tree
+                is parsed and selector args error at parse time.
         """
         if not self._has_subconfigs:
             return super().load(data=data, cmdline=cmdline, mode=mode,
@@ -572,7 +624,7 @@ class DataConfig(Config, metaclass=MetaDataConfig):
 
         pending_updates = None
         if data is not None:
-            cfg_updates = _coerce_data_updates(data, mode=mode)
+            cfg_updates = coerce_data_updates(data, mode=mode)
             pending_updates = cfg_updates
             if not cmdline:
                 apply_dot_updates(self, cfg_updates, allow_import=allow_import)
@@ -584,7 +636,8 @@ class DataConfig(Config, metaclass=MetaDataConfig):
                                         autocomplete=autocomplete,
                                         special_options=special_options,
                                         verbose=False,
-                                        allow_import=allow_import)
+                                        allow_import=allow_import,
+                                        allow_subconfig_overrides=allow_subconfig_overrides)
             self._data = parsed._data
             self._default = parsed._default
             self._subconfig_meta = parsed._subconfig_meta

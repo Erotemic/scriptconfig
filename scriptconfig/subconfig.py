@@ -34,6 +34,7 @@ from scriptconfig.value import Value
 
 __all__ = [
     'SubConfig',
+    'add_forbidden_selector_args',
     'apply_dot_updates',
     'class_has_subconfigs',
     'config_to_nested_dict',
@@ -41,12 +42,51 @@ __all__ = [
     'coerce_data_updates',
     'ensure_subconfigs_instantiated',
     'extract_selector_overrides',
+    'has_selector_overrides',
+    'find_subconfig_paths',
     'finalize_post_init',
     'flatten_defaults',
     'handle_special_dump',
     'scan_config_path',
     'wrap_subconfig_defaults',
 ]
+
+
+import argparse
+
+
+class _ForbiddenSelectorAction(argparse.Action):
+    """
+    argparse action that errors when subconfig selectors are disallowed.
+    """
+    def __init__(self, option_strings, dest, **kwargs):
+        import argparse
+        self._message = kwargs.pop('_message', None)
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        message = self._message or (
+            'SubConfig selection overrides require allow_subconfig_overrides=True'
+        )
+        parser.error(message)
+
+
+def add_forbidden_selector_args(parser, cfg):
+    """
+    Add selector options that always error when used.
+    """
+    import argparse
+    message = (
+        'SubConfig selection overrides require allow_subconfig_overrides=True'
+    )
+    for path in find_subconfig_paths(cfg):
+        for opt in (f'--{path}', f'--{path}.__class__'):
+            parser.add_argument(
+                opt,
+                action=_ForbiddenSelectorAction,
+                help=argparse.SUPPRESS,
+                _message=message,
+            )
 
 
 class SubConfig(Value):
@@ -260,7 +300,7 @@ def _path_is_subconfig(cfg, parts):
     return False
 
 
-def extract_selector_overrides(cfg, argv, allow_import=False):
+def extract_selector_overrides(cfg, argv, allow_import=True, localns=None):
     """
     Extract and apply selector-like arguments from argv in a staged manner.
     """
@@ -304,7 +344,7 @@ def extract_selector_overrides(cfg, argv, allow_import=False):
         if new_selectors:
             collected.update(new_selectors)
             working = kept
-            apply_dot_updates(cfg, new_selectors, allow_import=allow_import)
+            apply_dot_updates(cfg, new_selectors, allow_import=allow_import, localns=localns)
         else:
             working = kept
     return collected, working
@@ -328,12 +368,24 @@ def _ensure_parent_node(cfg, parts):
     return node
 
 
-def _resolve_class_spec(meta: SubConfig, spec, allow_import):
+def _resolve_class_spec(meta: SubConfig, spec, allow_import, localns=None):
+    """
+    Resolve a selector spec into a Config subclass.
+
+    Precedence:
+        1. SubConfig registry choices (if provided)
+        2. Local namespace class names (bare identifiers)
+        3. Importable module paths (if allow_import)
+    """
     if meta.choices and spec in meta.choices:
         return meta.choices[spec]
     if inspect.isclass(spec) and issubclass(spec, Config):
         return spec
     if isinstance(spec, str):
+        if localns is not None and spec.isidentifier():
+            candidate = localns.get(spec)
+            if inspect.isclass(candidate) and issubclass(candidate, Config):
+                return candidate
         if not (meta.allow_import or allow_import):
             raise ValueError(f'Importing {spec!r} not allowed for this SubConfig')
         if ':' in spec:
@@ -354,7 +406,7 @@ def _resolve_class_spec(meta: SubConfig, spec, allow_import):
     raise ValueError(f'Unknown selector spec {spec!r}')
 
 
-def _apply_selectors_fixpoint(cfg, selectors, allow_import=False):
+def _apply_selectors_fixpoint(cfg, selectors, allow_import=True, localns=None):
     remaining = dict(selectors)
     applied_any = True
     max_iter = 32
@@ -378,7 +430,7 @@ def _apply_selectors_fixpoint(cfg, selectors, allow_import=False):
             meta = getattr(parent, '_subconfig_meta', {}).get(leaf, None)
             if meta is None:
                 continue
-            cls = _resolve_class_spec(meta, spec, allow_import)
+            cls = _resolve_class_spec(meta, spec, allow_import, localns=localns)
             parent._data[leaf] = cls(_dont_call_post_init=True)
             applied_any = True
             remaining.pop(path, None)
@@ -386,7 +438,7 @@ def _apply_selectors_fixpoint(cfg, selectors, allow_import=False):
         raise KeyError(f'Could not resolve selectors for: {sorted(remaining)}')
 
 
-def apply_dot_updates(cfg, updates, *, allow_import=False):
+def apply_dot_updates(cfg, updates, *, allow_import=True, localns=None):
     """
     Apply dotted-path updates and selectors to a nested Config / DataConfig.
     """
@@ -408,7 +460,7 @@ def apply_dot_updates(cfg, updates, *, allow_import=False):
         else:
             leaf_updates[key] = value
 
-    _apply_selectors_fixpoint(cfg, selectors, allow_import=allow_import)
+    _apply_selectors_fixpoint(cfg, selectors, allow_import=allow_import, localns=localns)
 
     sugar = {}
     for key, value in list(leaf_updates.items()):
@@ -422,7 +474,7 @@ def apply_dot_updates(cfg, updates, *, allow_import=False):
                 sugar[key] = value
                 leaf_updates.pop(key, None)
     if sugar:
-        _apply_selectors_fixpoint(cfg, sugar, allow_import=allow_import)
+        _apply_selectors_fixpoint(cfg, sugar, allow_import=allow_import, localns=localns)
 
     for key, value in leaf_updates.items():
         parts = key.split('.')
@@ -436,6 +488,27 @@ def apply_dot_updates(cfg, updates, *, allow_import=False):
             raise KeyError(f'Unknown configuration key: {key}')
         parent[leaf] = value
     return cfg
+
+
+def has_selector_overrides(cfg, updates):
+    """
+    Determine if updates contain selector overrides for SubConfig nodes.
+    """
+    if not updates:
+        return False
+    flat_updates = OrderedDict()
+    if isinstance(updates, Mapping):
+        for k, v in _flatten_nested(updates):
+            flat_updates[k] = v
+    else:
+        return False
+    subconfig_paths = set(find_subconfig_paths(cfg))
+    for key in flat_updates:
+        if key.endswith('.__class__'):
+            return True
+        if key in subconfig_paths:
+            return True
+    return False
 
 
 def flatten_defaults(cfg, prefix=(), include_class_options=False):
@@ -510,7 +583,24 @@ def _class_identifier(cls):
     return f'{cls.__module__}:{cls.__name__}'
 
 
-def config_to_nested_dict(cfg, include_class=False):
+def find_subconfig_paths(cfg):
+    """
+    Yield dotted paths to SubConfig nodes in the realized tree.
+    """
+    paths = []
+    stack = [([], cfg)]
+    while stack:
+        prefix, node = stack.pop()
+        for key, value in node._data.items():
+            next_prefix = prefix + [key]
+            if key in getattr(node, '_subconfig_meta', {}):
+                paths.append('.'.join(next_prefix))
+            if isinstance(value, Config):
+                stack.append((next_prefix, value))
+    return paths
+
+
+def config_to_nested_dict(cfg, include_class=True):
     def unwrap(val):
         if isinstance(val, Value):
             return val.value
@@ -522,15 +612,16 @@ def config_to_nested_dict(cfg, include_class=False):
         meta = meta_map.get(key)
         if isinstance(value, Config):
             child = config_to_nested_dict(value, include_class=include_class)
-            if include_class:
-                selector = None
-                if meta is not None and meta.choices:
-                    for name, cls in meta.choices.items():
-                        if isinstance(value, cls):
-                            selector = name
-                            break
-                if selector is None:
-                    selector = _class_identifier(value.__class__)
+            selector = None
+            if meta is not None and meta.choices:
+                for name, cls in meta.choices.items():
+                    if isinstance(value, cls):
+                        selector = name
+                        break
+            if selector is None:
+                selector = _class_identifier(value.__class__)
+            # Always record the selected implementation for SubConfig nodes.
+            if meta is not None or include_class:
                 child['__class__'] = selector
             result[key] = child
         else:

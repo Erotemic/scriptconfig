@@ -365,7 +365,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
     @classmethod
     def cli(cls, data=None, default=None, argv=None, strict=True,
             cmdline=True, autocomplete='auto', special_options=True,
-            transition_helpers=True, verbose=False, allow_import=False):
+            transition_helpers=True, verbose=False, allow_import=True,
+            allow_subconfig_overrides=True):
         """
         Create a command-line aware config instance.
 
@@ -415,10 +416,16 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
             verbose (bool | str):
                 If true, then perform a rich print of the config after it is
-                parsed. This is a convenience to reduce script boilerplate.
-                If "auto", it will default to true in most cases, except when
-                we can infer special behavior from the user-defined config via
-                standard keys: verbose, quiet, and silent.
+                parsed. If "auto", it will default to true in most cases,
+                except when we can infer special behavior from the
+                user-defined config via standard keys: verbose, quiet, silent.
+            allow_import (bool):
+                If True, allow module path selectors like ``pkg.mod:Class``
+                for SubConfig selection. Defaults to True.
+            allow_subconfig_overrides (bool):
+                If True, enable multipass CLI parsing to allow SubConfig
+                selection overrides. If False, only the default realized tree
+                is parsed and selector args error at parse time.
 
         Example:
             >>> import scriptconfig as scfg
@@ -433,6 +440,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             >>> config = MyConfig.cli(argv=False, verbose='auto')
             >>> config = MyConfig.cli(argv=False, data=dict(verbose=1), verbose='auto')
         """
+        import inspect
         from scriptconfig import subconfig as _subcfg_mod
         if diagnostics.DEBUG_CONFIG:
             print(f'[scriptconfig] Call {cls.__name__}.cli')
@@ -447,7 +455,9 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             # Note: hack to avoid calling  __post_init__ twice
             self = cls(_dont_call_post_init=True)
             self.load(data, cmdline=cmdline, default=default, strict=strict,
-                      autocomplete=autocomplete, special_options=special_options)
+                      autocomplete=autocomplete, special_options=special_options,
+                      allow_import=allow_import,
+                      allow_subconfig_overrides=allow_subconfig_overrides)
         else:
             self = cls(_dont_call_post_init=True)
             if default:
@@ -455,6 +465,16 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
             _subcfg_mod.ensure_subconfigs_instantiated(self, _dont_call_post_init=True)
             argv_list, want_help = _subcfg_mod.coerce_argv(cmdline)
+            # Capture caller namespace for evaluating bare class names in selectors.
+            frame = inspect.currentframe()
+            try:
+                caller = frame.f_back if frame is not None else None
+                localns = {}
+                if caller is not None:
+                    localns.update(caller.f_globals)
+                    localns.update(caller.f_locals)
+            finally:
+                del frame
 
             config_fpath = None
             if special_options:
@@ -462,18 +482,41 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
             if config_fpath is not None:
                 cfg_updates = _subcfg_mod.coerce_data_updates(config_fpath)
-                _subcfg_mod.apply_dot_updates(self, cfg_updates, allow_import=allow_import)
+                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
+                    raise ValueError(
+                        'SubConfig selection overrides require allow_subconfig_overrides=True'
+                    )
+                _subcfg_mod.apply_dot_updates(
+                    self, cfg_updates, allow_import=allow_import, localns=localns
+                )
 
             if data is not None:
                 cfg_updates = _subcfg_mod.coerce_data_updates(data)
-                _subcfg_mod.apply_dot_updates(self, cfg_updates, allow_import=allow_import)
+                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
+                    raise ValueError(
+                        'SubConfig selection overrides require allow_subconfig_overrides=True'
+                    )
+                _subcfg_mod.apply_dot_updates(
+                    self, cfg_updates, allow_import=allow_import, localns=localns
+                )
 
-            selector_updates, stage2_argv = _subcfg_mod.extract_selector_overrides(self, argv_list, allow_import=allow_import)
-            if selector_updates:
-                _subcfg_mod.apply_dot_updates(self, selector_updates, allow_import=allow_import)
-
-            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
-            parser = flat_helper.argparse(special_options=special_options)
+            if allow_subconfig_overrides:
+                # Multi-pass parsing is required when selectors can change the tree shape.
+                selector_updates, stage2_argv = _subcfg_mod.extract_selector_overrides(
+                    self, argv_list, allow_import=allow_import, localns=localns
+                )
+                if selector_updates:
+                    _subcfg_mod.apply_dot_updates(
+                        self, selector_updates, allow_import=allow_import, localns=localns
+                    )
+                flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
+                parser = flat_helper.argparse(special_options=special_options)
+            else:
+                # When selectors are disallowed, a single static parser is valid.
+                flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
+                parser = flat_helper.argparse(special_options=special_options)
+                _subcfg_mod.add_forbidden_selector_args(parser, self)
+                stage2_argv = argv_list
 
             if autocomplete:
                 try:
@@ -762,7 +805,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
     def load(self, data=None, cmdline=False, mode=None, default=None,
              strict=False, autocomplete=False, _dont_call_post_init=False,
-             special_options=True, allow_import=False):
+             special_options=True, allow_import=True,
+             allow_subconfig_overrides=True):
         """
         Updates the configuration from a given data source.
 
@@ -808,6 +852,13 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             special_options (bool, default=False):
                 adds special scriptconfig options, namely: --config, --dumps,
                 and --dump. Prefer using this over cmdline.
+            allow_import (bool):
+                If True, allow module path selectors like ``pkg.mod:Class``
+                for SubConfig selection. Defaults to True.
+            allow_subconfig_overrides (bool):
+                If True, enable multipass CLI parsing to allow SubConfig
+                selection overrides. If False, only the default realized tree
+                is parsed and selector args error at parse time.
 
         Note:
             if cmdline=True, this will create an argument parser.
@@ -982,7 +1033,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                                             strict=strict, cmdline=cmdline,
                                             autocomplete=autocomplete,
                                             special_options=special_options,
-                                            verbose=False, allow_import=allow_import)
+                                            verbose=False, allow_import=allow_import,
+                                            allow_subconfig_overrides=allow_subconfig_overrides)
                 self._data = parsed._data
                 self._default = parsed._default
                 self._subconfig_meta = parsed._subconfig_meta
@@ -1881,7 +1933,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         oconf = OmegaConf.create(self.to_dict())
         return oconf
 
-    def argparse(self, parser=None, special_options=False):
+    def argparse(self, parser=None, special_options=False, allow_subconfig_overrides=False):
         """
         construct or update an argparse.ArgumentParser CLI parser
 
@@ -1892,6 +1944,9 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             special_options (bool, default=False):
                 adds special scriptconfig options, namely: --config, --dumps,
                 and --dump.
+            allow_subconfig_overrides (bool):
+                If True, allow SubConfig selector overrides. SubConfig
+                selection requires multipass parsing; use ``cli`` instead.
 
         Returns:
             argparse.ArgumentParser : a new or updated argument parser
@@ -2039,6 +2094,16 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             >>> self._read_argv(argv=[])
         """
         from scriptconfig import argparse_ext
+        if getattr(self, '_has_subconfigs', False):
+            if allow_subconfig_overrides:
+                raise RuntimeError(
+                    'SubConfig selection overrides require multipass parsing; use cli()'
+                )
+            from scriptconfig import subconfig as _subcfg_mod
+            flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
+            parser = flat_helper.argparse(parser=parser, special_options=special_options)
+            _subcfg_mod.add_forbidden_selector_args(parser, self)
+            return parser
 
         if parser is None:
             parserkw = self._parserkw()
