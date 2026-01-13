@@ -1080,64 +1080,81 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             import shlex
             argv = shlex.split(argv)
 
-        if getattr(self, '_has_subconfigs', False):
-            # Subconfig argv parsing requires a staged approach to resolve selector
-            # overrides before building a parser for realized leaf options.
-            self._read_argv_multipass(
+        # TODO: warn about any unused flags
+        parser = self.argparse(special_options=special_options)
+        has_subconfigs = getattr(self, '_has_subconfigs', False)
+        if has_subconfigs:
+            # Subconfig argv parsing is staged: realize selector overrides first,
+            # then rebuild a parser for the realized tree before parsing values.
+            parser, argv = self._expand_multipass_parser(
+                parser=parser,
                 argv=argv,
                 special_options=special_options,
-                strict=strict,
-                autocomplete=autocomplete,
                 allow_import=allow_import,
                 allow_subconfig_overrides=allow_subconfig_overrides,
                 pending_updates=pending_updates,
                 localns=localns,
             )
-        else:
-            # TODO: warn about any unused flags
-            parser = self.argparse(special_options=special_options)
 
-            if autocomplete:
-                try:
-                    import argcomplete as argcomplete_mod
-                except ImportError:
-                    if autocomplete != 'auto':
-                        raise
-                else:
-                    argcomplete_mod.autocomplete(parser)
-
+        if autocomplete:
             try:
+                import argcomplete as argcomplete_mod
+            except ImportError:
+                if autocomplete != 'auto':
+                    raise
+            else:
+                argcomplete_mod.autocomplete(parser)
+
+        try:
+            if has_subconfigs:
+                ns_obj, extras = parser.parse_known_args(argv)
+                if strict and extras:
+                    unknown = ' '.join(extras)
+                    raise KeyError(f'Unknown configuration options: {unknown}')
+                ns = ns_obj.__dict__
+            else:
                 if strict:
                     ns = parser.parse_args(argv).__dict__
                 else:
                     ns = parser.parse_known_args(argv)[0].__dict__
-            except (ValueError, TypeError) as ex:
-                # For errors (like ValueError) where its probably a programmer
-                # error and not a user error, give the debugger some information
-                # about the scriptconfig object.
-                from scriptconfig.util import util_exception
-                # TODO: figure out argv that triggers a value error so we can add a test
-                note = ub.codeblock(
-                    f'''
-                    Error while attempting to parse arguments in _read_argv
+        except (ValueError, TypeError, KeyError) as ex:
+            # For errors (like ValueError) where its probably a programmer
+            # error and not a user error, give the debugger some information
+            # about the scriptconfig object.
+            from scriptconfig.util import util_exception
+            # TODO: figure out argv that triggers a value error so we can add a test
+            note = ub.codeblock(
+                f'''
+                Error while attempting to parse arguments in _read_argv
 
-                    Context:
-                        argv = {argv!r}
-                        special_options = {special_options!r}
-                        strict = {strict!r}
-                        autocomplete = {autocomplete!r}
-                        self = {self!r}
-                    ''')
-                print(note)
-                ex = util_exception.add_exception_note(ex, note)
-                raise ex
+                Context:
+                    argv = {argv!r}
+                    special_options = {special_options!r}
+                    strict = {strict!r}
+                    autocomplete = {autocomplete!r}
+                    self = {self!r}
+                ''')
+            print(note)
+            ex = util_exception.add_exception_note(ex, note)
+            raise ex
 
-            special_ns_keys = ['config', 'dump', 'dumps']
+        special_ns_keys = ['config', 'dump', 'dumps']
+        if special_options:
+            special_ns = {k: ns.pop(k, None) for k in special_ns_keys}
+        else:
+            special_ns = {}
+
+        if has_subconfigs:
+            # Subconfig updates use dotted keys and need to respect selector
+            # overrides, so apply explicit updates through subconfig helpers.
+            from scriptconfig import subconfig as _subcfg_mod
+            explicit = getattr(parser, '_explicitly_given', set())
+            explicit_updates = {k: v for k, v in ns.items() if k in explicit}
+            if explicit_updates:
+                _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
             if special_options:
-                special_ns = {k: ns.pop(k, None) for k in special_ns_keys}
-            else:
-                special_ns = {}
-
+                _subcfg_mod.handle_special_dump(self, special_ns)
+        else:
             # We might remove code under this if using action casting proves to be
             # stable.
             RELY_ON_ACTION_SMARTCAST = True
@@ -1227,21 +1244,20 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                     sys.exit(1)
         return self
 
-    def _read_argv_multipass(self, argv=None, special_options=True, strict=False,
-                             autocomplete=False, allow_import=True,
-                             allow_subconfig_overrides=True, pending_updates=None,
-                             localns=None):
+    def _expand_multipass_parser(self, parser, argv=None, special_options=True,
+                                 allow_import=True, allow_subconfig_overrides=True,
+                                 pending_updates=None, localns=None):
         """
-        Parse argv for configs with nested SubConfig nodes.
+        Expand an argparse parser for configs with nested SubConfig nodes.
 
-        This uses a staged parse: first realize the tree shape (optionally
-        allowing selector overrides), then parse remaining leaf arguments
-        against a flattened parser for the realized tree.
+        This staged parse realizes selector overrides first, then rebuilds a
+        parser for the realized tree so the remaining argv can be parsed in a
+        single pass with the standard logic in _read_argv.
         """
         import inspect
         from scriptconfig import subconfig as _subcfg_mod
 
-        argv_list, want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
+        argv_list, _want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
 
         if localns is None:
             frame = inspect.currentframe()
@@ -1294,53 +1310,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             parser = flat_helper.argparse(special_options=special_options)
             _subcfg_mod.add_forbidden_selector_args(parser, self)
             stage2_argv = argv_list
-
-        if autocomplete:
-            try:
-                import argcomplete as argcomplete_mod
-            except ImportError:
-                if autocomplete != 'auto':
-                    raise
-            else:
-                argcomplete_mod.autocomplete(parser)
-
-        try:
-            if strict:
-                ns_obj, extras = parser.parse_known_args(stage2_argv)
-                if extras:
-                    unknown = ' '.join(extras)
-                    raise KeyError(f'Unknown configuration options: {unknown}')
-            else:
-                ns_obj = parser.parse_known_args(stage2_argv)[0]
-            ns = ns_obj.__dict__
-        except (ValueError, TypeError, KeyError) as ex:
-            from scriptconfig.util import util_exception
-            note = ub.codeblock(
-                f'''
-                Error while attempting to parse arguments in _read_argv
-
-                Context:
-                    argv = {stage2_argv!r}
-                    special_options = {special_options!r}
-                    strict = {strict!r}
-                    autocomplete = {autocomplete!r}
-                    self = {self!r}
-                ''')
-            print(note)
-            ex = util_exception.add_exception_note(ex, note)
-            raise ex
-
-        special_ns = {}
-        if special_options:
-            special_ns = {k: ns.pop(k, None) for k in ['config', 'dump', 'dumps']}
-
-        explicit = getattr(parser, '_explicitly_given', set())
-        explicit_updates = {k: v for k, v in ns.items() if k in explicit}
-        if explicit_updates:
-            _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
-
-        if special_options:
-            _subcfg_mod.handle_special_dump(self, special_ns)
+        return parser, stage2_argv
 
     def __post_init__(self):
         """ overloadable function called after each load """
