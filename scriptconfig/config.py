@@ -1208,84 +1208,89 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             # can use the standard Config setitem logic.
             from scriptconfig import subconfig as _subcfg_mod
             explicit = getattr(parser, '_explicitly_given', set())
-            explicit_updates = {k: v for k, v in ns.items() if k in explicit}
-            if explicit_updates:
-                subconfig_paths = set(_subcfg_mod.find_subconfig_paths(self))
-                selector_updates = {
-                    k: v for k, v in explicit_updates.items()
+            subconfig_paths = set(_subcfg_mod.find_subconfig_paths(self))
+            if explicit:
+                selector_keys = {
+                    k for k in explicit
                     if k.endswith('.__class__') or k in subconfig_paths
                 }
-                if selector_updates:
+                if selector_keys:
+                    selector_updates = {k: ns[k] for k in selector_keys if k in ns}
                     _subcfg_mod.apply_dot_updates(
                         self,
                         selector_updates,
                         allow_import=allow_import,
                         localns=localns,
                     )
-                for key, value in explicit_updates.items():
-                    if key in selector_updates or key in special_ns:
-                        continue
-                    self[key] = value
-        else:
-            # First load argparse defaults in first
-            _not_given = set(ns.keys()) - parser._explicitly_given
-            # print('_not_given = {!r}'.format(_not_given))
-            # print('parser._explicitly_given = {!r}'.format(parser._explicitly_given))
-            for key in _not_given:
+                    for key in selector_keys:
+                        ns.pop(key, None)
+                    parser._explicitly_given = explicit - selector_keys
+            if subconfig_paths:
+                for key in subconfig_paths:
+                    ns.pop(key, None)
+                parser._explicitly_given = {
+                    key for key in parser._explicitly_given
+                    if key not in subconfig_paths
+                }
+        # First load argparse defaults in first
+        _not_given = set(ns.keys()) - parser._explicitly_given
+        # print('_not_given = {!r}'.format(_not_given))
+        # print('parser._explicitly_given = {!r}'.format(parser._explicitly_given))
+        for key in _not_given:
+            value = ns[key]
+            # NOTE: this implementation is messy and needs refactor.
+            # Currently the .__default__ .default, ._default, and ._data
+            # attributes can all be Value objects, but this gets messy when the
+            # "default" constructor argument is used. We should refactor so
+            # _data and _default only store the raw current values,
+            # post-casting.
+            if key not in self.__default__:
+                # probably an alias
+                continue
+
+            if not RELY_ON_ACTION_SMARTCAST:
+                # Old way that we did smartcast. Hopefully the action class
+                # takes care of this.
+                template = self.__default__[key]
+                # print('template = {!r}'.format(template))
+                if not isinstance(template, Value):
+                    # smartcast non-valued params from commandline
+                    value = smartcast.smartcast(value)
+                else:
+                    value = template.cast(value)
+
+            # if value is not None:
+            self[key] = value
+
+        # Then load config file defaults
+        if special_options:
+            config_fpath = special_ns['config']
+            if config_fpath is not None:
+                self.load(config_fpath, cmdline=False,
+                          _dont_call_post_init=True)
+
+        # Finally load explicit CLI values
+        for key in parser._explicitly_given:
+            if key not in special_ns:
                 value = ns[key]
-                # NOTE: this implementation is messy and needs refactor.
-                # Currently the .__default__ .default, ._default, and ._data
-                # attributes can all be Value objects, but this gets messy when the
-                # "default" constructor argument is used. We should refactor so
-                # _data and _default only store the raw current values,
-                # post-casting.
-                if key not in self.__default__:
-                    # probably an alias
-                    continue
 
                 if not RELY_ON_ACTION_SMARTCAST:
                     # Old way that we did smartcast. Hopefully the action class
                     # takes care of this.
+
                     template = self.__default__[key]
+
+                    # print('value = {!r}'.format(value))
                     # print('template = {!r}'.format(template))
                     if not isinstance(template, Value):
                         # smartcast non-valued params from commandline
                         value = smartcast.smartcast(value)
-                    else:
-                        value = template.cast(value)
 
                 # if value is not None:
                 self[key] = value
 
-            # Then load config file defaults
-            if special_options:
-                config_fpath = special_ns['config']
-                if config_fpath is not None:
-                    self.load(config_fpath, cmdline=False,
-                              _dont_call_post_init=True)
-
-            # Finally load explicit CLI values
-            for key in parser._explicitly_given:
-                if key not in special_ns:
-                    value = ns[key]
-
-                    if not RELY_ON_ACTION_SMARTCAST:
-                        # Old way that we did smartcast. Hopefully the action class
-                        # takes care of this.
-
-                        template = self.__default__[key]
-
-                        # print('value = {!r}'.format(value))
-                        # print('template = {!r}'.format(template))
-                        if not isinstance(template, Value):
-                            # smartcast non-valued params from commandline
-                            value = smartcast.smartcast(value)
-
-                    # if value is not None:
-                    self[key] = value
-
-            # We dont want this here right?
-            # self.__post_init__()
+        # We dont want this here right?
+        # self.__post_init__()
 
         if special_options:
             import sys
