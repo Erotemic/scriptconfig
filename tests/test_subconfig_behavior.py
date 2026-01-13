@@ -212,6 +212,39 @@ def test_subconfig_stacklevel_localns_resolution():
     assert isinstance(cfg2.optim, LocalOpt)
 
 
+def test_subconfig_config_string_cases():
+    class OptimizerConfig(scfg.DataConfig):
+        lr = scfg.Value(0.01, type=float)
+
+    class SGDLocal(OptimizerConfig):
+        momentum = scfg.Value(0.9, type=float)
+
+    class AdamLocal(OptimizerConfig):
+        beta1 = scfg.Value(0.9, type=float)
+
+    class TrainLocal(scfg.DataConfig):
+        optim = scfg.SubConfig(SGDLocal, choices={'adam': AdamLocal, 'sgd': SGDLocal})
+        model = scfg.Value('vit', choices=['vit', 'resnet50'])
+        epochs = scfg.Value(10, type=int)
+
+    cases = [
+        {'argv': '--config "{model: resnet50, optim.momentum: 0.88}"', 'optim': SGDLocal},
+        {'argv': '--config "{model: resnet50, optim: {momentum: 0.88}}"', 'optim': SGDLocal},
+        {'argv': '--config "{model: resnet50, optim: adam, optim.beta1: 0.88}"', 'optim': AdamLocal},
+        {'argv': '--config "{model: resnet50, optim.__class__: adam, optim.beta1: 0.88}"', 'optim': AdamLocal},
+        {'argv': '--config "{model: resnet50, optim: {__class__: adam, beta1: 0.88}}"', 'optim': AdamLocal},
+    ]
+
+    for case in cases:
+        cfg = TrainLocal.cli(argv=case['argv'], allow_import=True, allow_subconfig_overrides=True)
+        assert cfg.model == 'resnet50'
+        assert isinstance(cfg.optim, case['optim'])
+        if isinstance(cfg.optim, SGDLocal):
+            assert cfg.optim.momentum == pytest.approx(0.88)
+        else:
+            assert cfg.optim.beta1 == pytest.approx(0.88)
+
+
 def test_subconfig_class_identifier_module_path():
     class Inner(scfg.Config):
         __default__ = {'x': 1}

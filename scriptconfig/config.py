@@ -902,10 +902,12 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                     k = _alias_map[a]
                     user_config[k] = user_config.pop(a)
                 else:
-                    # Ignore any unknown dunder or dotted keys as they can't be
-                    # config keys in the first place.
+                    # Ignore any unknown dunder keys or allow dotted keys when
+                    # subconfigs are enabled (they may be nested updates).
                     if a.startswith('.') or a.startswith('__') and a.endswith('__'):
                         user_config.pop(a, None)
+                    elif getattr(self, '_has_subconfigs', False) and '.' in a:
+                        continue
                     else:
                         unknown_keys.append(a)
             if unknown_keys:
@@ -919,6 +921,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                         user_config.pop(k, None)
 
         from scriptconfig import subconfig as _subcfg_mod
+        localns = _subcfg_mod.resolve_localns(localns, stacklevel)
         self._data = _default.copy()
         pending_updates = None
         if getattr(self, '_has_subconfigs', False):
@@ -926,7 +929,13 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             if cmdline:
                 pending_updates = _subcfg_mod.coerce_data_updates(user_config)
             else:
-                _subcfg_mod.apply_dot_updates(self, user_config, allow_import=allow_import)
+                _subcfg_mod.apply_dot_updates(
+                    self,
+                    user_config,
+                    allow_import=allow_import,
+                    localns=localns,
+                    stacklevel=None,
+                )
         else:
             self.update(user_config)
 
@@ -1127,18 +1136,14 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             import shlex
             argv = shlex.split(argv)
 
-        if localns is None and stacklevel is not None:
-            from scriptconfig import subconfig as _subcfg_mod
-            frame = _subcfg_mod.get_stack_frame(stacklevel=stacklevel + 1)
-            localns = dict(frame.f_globals)
-            localns.update(frame.f_locals)
-
         # TODO: warn about any unused flags
         parser = self.argparse(special_options=special_options)
         has_subconfigs = getattr(self, '_has_subconfigs', False)
         if has_subconfigs:
             # Subconfig argv parsing is staged: realize selector overrides first,
             # then rebuild a parser for the realized tree before parsing values.
+            from scriptconfig import subconfig as _subcfg_mod
+            localns = _subcfg_mod.resolve_localns(localns, stacklevel)
             parser, argv = self._expand_multipass_parser(
                 parser=parser,
                 argv=argv,
@@ -1147,6 +1152,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 allow_subconfig_overrides=allow_subconfig_overrides,
                 pending_updates=pending_updates,
                 localns=localns,
+                stacklevel=None,
             )
 
         if autocomplete:
@@ -1211,6 +1217,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                         selector_updates,
                         allow_import=allow_import,
                         localns=localns,
+                        stacklevel=None,
                     )
                     for key in selector_keys:
                         ns.pop(key, None)
@@ -1309,7 +1316,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
     def _expand_multipass_parser(self, parser, argv=None, special_options=True,
                                  allow_import=True, allow_subconfig_overrides=True,
-                                 pending_updates=None, localns=None):
+                                 pending_updates=None, localns=None, stacklevel=None):
         """
         Expand an argparse parser for configs with nested SubConfig nodes.
 
@@ -1330,7 +1337,11 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                         'SubConfig selection overrides require allow_subconfig_overrides=True'
                     )
                 _subcfg_mod.apply_dot_updates(
-                    self, cfg_updates, allow_import=allow_import, localns=localns
+                    self,
+                    cfg_updates,
+                    allow_import=allow_import,
+                    localns=localns,
+                    stacklevel=stacklevel,
                 )
 
         if pending_updates is not None:
@@ -1340,16 +1351,28 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                     'SubConfig selection overrides require allow_subconfig_overrides=True'
                 )
             _subcfg_mod.apply_dot_updates(
-                self, cfg_updates, allow_import=allow_import, localns=localns
+                self,
+                cfg_updates,
+                allow_import=allow_import,
+                localns=localns,
+                stacklevel=stacklevel,
             )
 
         if allow_subconfig_overrides:
             selector_updates, _stage2_argv = _subcfg_mod.extract_selector_overrides(
-                self, argv_list, allow_import=allow_import, localns=localns
+                self,
+                argv_list,
+                allow_import=allow_import,
+                localns=localns,
+                stacklevel=stacklevel,
             )
             if selector_updates:
                 _subcfg_mod.apply_dot_updates(
-                    self, selector_updates, allow_import=allow_import, localns=localns
+                    self,
+                    selector_updates,
+                    allow_import=allow_import,
+                    localns=localns,
+                    stacklevel=stacklevel,
                 )
             flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
             parser = flat_helper.argparse(special_options=special_options)

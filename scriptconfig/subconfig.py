@@ -47,6 +47,7 @@ __all__ = [
     'finalize_post_init',
     'flatten_defaults',
     'get_stack_frame',
+    'resolve_localns',
     'scan_config_path',
     'wrap_subconfig_defaults',
 ]
@@ -79,6 +80,24 @@ def get_stack_frame(stacklevel=0):
             raise AssertionError(f'Frame level {ix} is root')
         frame_cur = frame_next
     return frame_cur
+
+
+def resolve_localns(localns, stacklevel):
+    """
+    Resolve the namespace for selector evaluation, if needed.
+
+    Args:
+        localns (dict | None): namespace to use when resolving class names.
+        stacklevel (int | None): stack offset for caller introspection.
+
+    Returns:
+        dict | None: resolved namespace.
+    """
+    if localns is None and stacklevel is not None:
+        frame = get_stack_frame(stacklevel=stacklevel + 2)
+        localns = dict(frame.f_globals)
+        localns.update(frame.f_locals)
+    return localns
 
 
 class _ForbiddenSelectorAction(argparse.Action):
@@ -326,10 +345,12 @@ def _path_is_subconfig(cfg, parts):
     return False
 
 
-def extract_selector_overrides(cfg, argv, allow_import=True, localns=None):
+def extract_selector_overrides(cfg, argv, allow_import=True, localns=None, stacklevel=None):
     """
     Extract and apply selector-like arguments from argv in a staged manner.
     """
+    if stacklevel is not None:
+        localns = resolve_localns(localns, stacklevel)
     working = list(argv)
     collected = {}
     changed = True
@@ -370,7 +391,13 @@ def extract_selector_overrides(cfg, argv, allow_import=True, localns=None):
         if new_selectors:
             collected.update(new_selectors)
             working = kept
-            apply_dot_updates(cfg, new_selectors, allow_import=allow_import, localns=localns)
+            apply_dot_updates(
+                cfg,
+                new_selectors,
+                allow_import=allow_import,
+                localns=localns,
+                stacklevel=None,
+            )
         else:
             working = kept
     return collected, working
@@ -464,12 +491,15 @@ def _apply_selectors_fixpoint(cfg, selectors, allow_import=True, localns=None):
         raise KeyError(f'Could not resolve selectors for: {sorted(remaining)}')
 
 
-def apply_dot_updates(cfg, updates, *, allow_import=True, localns=None):
+def apply_dot_updates(cfg, updates, *, allow_import=True, localns=None, stacklevel=None):
     """
     Apply dotted-path updates and selectors to a nested Config / DataConfig.
     """
     if not updates:
         return cfg
+
+    if stacklevel is not None:
+        localns = resolve_localns(localns, stacklevel)
 
     flat_updates = OrderedDict()
     if isinstance(updates, Mapping):
