@@ -212,6 +212,58 @@ def test_subconfig_stacklevel_localns_resolution():
     assert isinstance(cfg2['optim'], LocalOpt)
 
 
+def test_config_attribute_lookup_is_disallowed():
+    class SimpleConfig(scfg.Config):
+        __default__ = {'value': 3}
+
+    cfg = SimpleConfig()
+    with pytest.raises(AttributeError):
+        _ = cfg.value
+
+
+def test_subconfig_nested_class_scope_resolution():
+    class Container:
+        class LocalOpt(scfg.Config):
+            __default__ = {'lr': 0.3}
+
+    class ContainerTrain(scfg.Config):
+        __default__ = {
+            'optim': scfg.SubConfig(
+                Container.LocalOpt,
+                choices={'local': Container.LocalOpt},
+            ),
+        }
+
+    cfg = ContainerTrain.cli(
+        argv=['--optim=local'],
+        allow_subconfig_overrides=True,
+        stacklevel=0,
+    )
+    assert isinstance(cfg['optim'], Container.LocalOpt)
+
+
+def test_subconfig_local_scope_resolution_in_function():
+    def build_cfg():
+        class LocalOpt(scfg.Config):
+            __default__ = {'lr': 0.4}
+
+        class TrainLocal(scfg.Config):
+            __default__ = {
+                'optim': scfg.SubConfig(
+                    LocalOpt,
+                    choices={'local': LocalOpt},
+                ),
+            }
+
+        cfg = TrainLocal.cli(
+            argv=['--optim=local'],
+            allow_subconfig_overrides=True,
+            stacklevel=1,
+        )
+        return cfg, LocalOpt
+
+    cfg, local_cls = build_cfg()
+    assert isinstance(cfg['optim'], local_cls)
 def test_subconfig_config_string_cases():
     class OptimizerConfig(scfg.DataConfig):
         lr = scfg.Value(0.01, type=float)
