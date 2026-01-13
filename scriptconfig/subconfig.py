@@ -36,7 +36,6 @@ __all__ = [
     'SubConfig',
     'add_forbidden_selector_args',
     'apply_dot_updates',
-    'class_has_subconfigs',
     'config_to_nested_dict',
     'coerce_argv',
     'coerce_data_updates',
@@ -48,7 +47,6 @@ __all__ = [
     'finalize_post_init',
     'flat_config_from_tree',
     'flatten_defaults',
-    'get_stack_frame',
     'resolve_localns',
     'scan_config_path',
     'wrap_subconfig_defaults',
@@ -207,22 +205,6 @@ class SubConfig(Value):
             if _dont_call_post_init and hasattr(instance, '_enable_setattr'):
                 instance._enable_setattr = True
         return instance
-
-
-def class_has_subconfigs(cls):
-    """
-    Check if a Config class declares any SubConfig defaults.
-
-    Example:
-        >>> import scriptconfig as scfg
-        >>> class Inner(scfg.Config):
-        ...     __default__ = {'x': 1}
-        >>> class Outer(scfg.Config):
-        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
-        >>> assert class_has_subconfigs(Outer)
-    """
-    default = getattr(cls, '__default__', None) or {}
-    return any(isinstance(v, SubConfig) or isinstance(v, Config) for v in default.values())
 
 
 def wrap_subconfig_defaults(cfg, _dont_call_post_init=False):
@@ -393,7 +375,7 @@ def coerce_data_updates(data, mode=None):
     return flat
 
 
-def _flatten_nested(mapping, prefix=()):
+def _flatten_nested(mapping):
     """
     Flatten a nested mapping into dotted key/value pairs.
 
@@ -401,15 +383,21 @@ def _flatten_nested(mapping, prefix=()):
         >>> list(_flatten_nested({'a': {'b': 1}, 'c': 2}))
         [('a.b', 1), ('c', 2)]
     """
-    if isinstance(mapping, Mapping):
-        for k, v in mapping.items():
-            key = '.'.join(prefix + (k,))
-            if isinstance(v, Mapping):
-                yield from _flatten_nested(v, prefix + (k,))
-            else:
-                yield key, v
-    else:
+    if not isinstance(mapping, Mapping):
         raise TypeError('Expected mapping')
+    stack = [(iter(mapping.items()), ())]
+    while stack:
+        iterator, prefix = stack[-1]
+        try:
+            k, v = next(iterator)
+        except StopIteration:
+            stack.pop()
+            continue
+        next_prefix = prefix + (k,)
+        if isinstance(v, Mapping):
+            stack.append((iter(v.items()), next_prefix))
+        else:
+            yield '.'.join(next_prefix), v
 
 
 def _split_option_token(argv, idx):
