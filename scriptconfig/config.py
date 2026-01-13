@@ -1204,13 +1204,28 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         # stable.
         RELY_ON_ACTION_SMARTCAST = True
         if has_subconfigs:
-            # Subconfig updates use dotted keys and need to respect selector
-            # overrides, so apply explicit updates through subconfig helpers.
+            # Subconfig selectors need special handling, but regular values
+            # can use the standard Config setitem logic.
             from scriptconfig import subconfig as _subcfg_mod
             explicit = getattr(parser, '_explicitly_given', set())
             explicit_updates = {k: v for k, v in ns.items() if k in explicit}
             if explicit_updates:
-                _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
+                subconfig_paths = set(_subcfg_mod.find_subconfig_paths(self))
+                selector_updates = {
+                    k: v for k, v in explicit_updates.items()
+                    if k.endswith('.__class__') or k in subconfig_paths
+                }
+                if selector_updates:
+                    _subcfg_mod.apply_dot_updates(
+                        self,
+                        selector_updates,
+                        allow_import=allow_import,
+                        localns=localns,
+                    )
+                for key, value in explicit_updates.items():
+                    if key in selector_updates or key in special_ns:
+                        continue
+                    self[key] = value
         else:
             # First load argparse defaults in first
             _not_given = set(ns.keys()) - parser._explicitly_given
