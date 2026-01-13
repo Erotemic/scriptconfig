@@ -238,6 +238,11 @@ def wrap_subconfig_defaults(cfg, _dont_call_post_init=False):
         >>> cfg = Outer(_dont_call_post_init=True)
         >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
         >>> assert cfg._has_subconfigs
+        >>> class OuterValue(scfg.Config):
+        ...     __default__ = {'inner': scfg.Value(Inner())}
+        >>> cfg = OuterValue(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> assert isinstance(cfg._subconfig_meta['inner'], scfg.SubConfig)
     """
     cfg._subconfig_meta = {}
     cfg._has_subconfigs = False
@@ -245,6 +250,16 @@ def wrap_subconfig_defaults(cfg, _dont_call_post_init=False):
         meta = None
         if isinstance(v, SubConfig):
             meta = v
+        elif isinstance(v, Value) and not isinstance(v, SubConfig):
+            inner = v.value
+            if isinstance(inner, SubConfig):
+                meta = inner
+            elif isinstance(inner, Config):
+                meta = SubConfig(inner, help=v.help)
+                cfg._default[k] = meta
+            elif inspect.isclass(inner) and issubclass(inner, Config):
+                meta = SubConfig(inner, help=v.help)
+                cfg._default[k] = meta
         elif isinstance(v, Config):
             meta = SubConfig(v)
             cfg._default[k] = meta

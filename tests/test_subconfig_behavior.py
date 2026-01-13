@@ -264,6 +264,29 @@ def test_subconfig_local_scope_resolution_in_function():
 
     cfg, local_cls = build_cfg()
     assert isinstance(cfg['optim'], local_cls)
+
+
+def test_value_wrapped_config_upgrades_to_subconfig():
+    class InnerConfig(scfg.Config):
+        __default__ = {'x': 1}
+
+    class InnerDataConfig(scfg.DataConfig):
+        x = 2
+
+    class OuterConfig(scfg.Config):
+        __default__ = {
+            'inner_cfg': scfg.Value(InnerConfig()),
+            'inner_dc': scfg.Value(InnerDataConfig()),
+        }
+
+    cfg = OuterConfig()
+    assert cfg._has_subconfigs
+    assert isinstance(cfg._subconfig_meta['inner_cfg'], scfg.SubConfig)
+    assert isinstance(cfg._subconfig_meta['inner_dc'], scfg.SubConfig)
+    assert isinstance(cfg['inner_cfg'], InnerConfig)
+    assert isinstance(cfg['inner_dc'], InnerDataConfig)
+
+
 def test_subconfig_config_string_cases():
     class OptimizerConfig(scfg.DataConfig):
         lr = scfg.Value(0.01, type=float)

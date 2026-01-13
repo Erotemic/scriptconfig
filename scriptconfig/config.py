@@ -353,12 +353,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             self._default.update(cls_default)
         self._alias_map = None
         # Normalize SubConfig-like defaults early
-        try:
-            from scriptconfig.subconfig import wrap_subconfig_defaults
-        except Exception:
-            wrap_subconfig_defaults = None
-        if wrap_subconfig_defaults is not None:
-            wrap_subconfig_defaults(self, _dont_call_post_init=_dont_call_post_init)
+        from scriptconfig.subconfig import wrap_subconfig_defaults
+        wrap_subconfig_defaults(self, _dont_call_post_init=_dont_call_post_init)
         self.load(data, cmdline=cmdline, default=default,
                   _dont_call_post_init=_dont_call_post_init)
 
@@ -691,12 +687,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
         self._default.update(default)
         self._alias_map = None
-        try:
-            from scriptconfig.subconfig import wrap_subconfig_defaults
-        except Exception:
-            wrap_subconfig_defaults = None
-        if wrap_subconfig_defaults is not None:
-            wrap_subconfig_defaults(self, _dont_call_post_init=True)
+        from scriptconfig.subconfig import wrap_subconfig_defaults
+        wrap_subconfig_defaults(self, _dont_call_post_init=True)
 
     def load(self, data=None, cmdline=False, mode=None, default=None,
              strict=False, autocomplete=False, _dont_call_post_init=False,
