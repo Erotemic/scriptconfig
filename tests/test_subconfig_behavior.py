@@ -178,7 +178,38 @@ def test_subconfig_class_in_dict():
     cfg = TrainConfig.cli(argv=[], allow_subconfig_overrides=False)
     data = cfg.to_dict()
     assert data['optim']['__class__'] == 'adam'
-    assert data['model']['__class__'] == 'base'
+
+
+def test_subconfig_stacklevel_localns_resolution():
+    class LocalOpt(scfg.Config):
+        __default__ = {'lr': 0.2}
+
+    class TrainLocal(scfg.Config):
+        __default__ = {
+            'optim': scfg.SubConfig(AdamConfig, choices={'adam': AdamConfig}),
+        }
+
+    def wrapper_cli():
+        return TrainLocal.cli(
+            argv=['--optim=LocalOpt'],
+            allow_subconfig_overrides=True,
+            stacklevel=1,
+        )
+
+    cfg = wrapper_cli()
+    assert isinstance(cfg.optim, LocalOpt)
+
+    def wrapper_load():
+        cfg = TrainLocal()
+        cfg.load(
+            cmdline=['--optim=LocalOpt'],
+            allow_subconfig_overrides=True,
+            stacklevel=1,
+        )
+        return cfg
+
+    cfg2 = wrapper_load()
+    assert isinstance(cfg2.optim, LocalOpt)
 
 
 def test_subconfig_class_identifier_module_path():

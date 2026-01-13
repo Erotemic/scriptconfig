@@ -46,12 +46,39 @@ __all__ = [
     'find_subconfig_paths',
     'finalize_post_init',
     'flatten_defaults',
+    'get_stack_frame',
     'scan_config_path',
     'wrap_subconfig_defaults',
 ]
 
 
 import argparse
+
+
+def get_stack_frame(stacklevel=0):
+    """
+    Gets the current stack frame or any of its ancestors dynamically.
+
+    Args:
+        stacklevel (int): stacklevel=0 means the frame you called this
+            function in. stacklevel=1 is the parent frame.
+
+    Returns:
+        FrameType: frame_cur
+
+    Example:
+        >>> frame_cur = get_stack_frame(stacklevel=0)
+        >>> print('frame_cur = %r' % (frame_cur,))
+        >>> assert frame_cur.f_globals['frame_cur'] is frame_cur
+    """
+    frame_cur = inspect.currentframe()
+    # Use stacklevel+1 to always skip the frame of this function.
+    for ix in range(stacklevel + 1):
+        frame_next = frame_cur.f_back
+        if frame_next is None:  # nocover
+            raise AssertionError(f'Frame level {ix} is root')
+        frame_cur = frame_next
+    return frame_cur
 
 
 class _ForbiddenSelectorAction(argparse.Action):

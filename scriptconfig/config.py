@@ -366,7 +366,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
     def cli(cls, data=None, default=None, argv=None, strict=True,
             cmdline=True, autocomplete='auto', special_options=True,
             transition_helpers=True, verbose=False, allow_import=True,
-            allow_subconfig_overrides=True):
+            allow_subconfig_overrides=True, localns=None, stacklevel=0):
         """
         Create a command-line aware config instance.
 
@@ -427,6 +427,14 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 If True, enable multipass CLI parsing to allow SubConfig
                 selection overrides. If False, only the default realized tree
                 is parsed and selector args error at parse time.
+            localns (dict | None):
+                Namespace used to resolve SubConfig class names. If None and
+                ``stacklevel`` is not None, a namespace is derived from the
+                caller's frame.
+            stacklevel (int | None):
+                Number of frames above the caller to use when deriving the
+                namespace for SubConfig class name resolution. Use None to
+                disable caller introspection.
 
         Example:
             >>> import scriptconfig as scfg
@@ -450,12 +458,18 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             cmdline = argv
         if default is None:
             default = {}
+        if localns is None and stacklevel is not None:
+            from scriptconfig import subconfig as _subcfg_mod
+            frame = _subcfg_mod.get_stack_frame(stacklevel=stacklevel + 1)
+            localns = dict(frame.f_globals)
+            localns.update(frame.f_locals)
         # Note: hack to avoid calling __post_init__ twice
         self = cls(_dont_call_post_init=True)
         self.load(data, cmdline=cmdline, default=default, strict=strict,
                   autocomplete=autocomplete, special_options=special_options,
                   allow_import=allow_import,
-                  allow_subconfig_overrides=allow_subconfig_overrides)
+                  allow_subconfig_overrides=allow_subconfig_overrides,
+                  localns=localns, stacklevel=stacklevel)
 
         if isinstance(verbose, str) and verbose == 'auto':
             verbose = self.get('verbose', verbose)
@@ -696,7 +710,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
     def load(self, data=None, cmdline=False, mode=None, default=None,
              strict=False, autocomplete=False, _dont_call_post_init=False,
              special_options=True, allow_import=True,
-             allow_subconfig_overrides=True):
+             allow_subconfig_overrides=True, localns=None, stacklevel=0):
         """
         Updates the configuration from a given data source.
 
@@ -750,6 +764,14 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 If True, enable multipass CLI parsing to allow SubConfig
                 selection overrides. If False, only the default realized tree
                 is parsed and selector args error at parse time.
+            localns (dict | None):
+                Namespace used to resolve SubConfig class names. If None and
+                ``stacklevel`` is not None, a namespace is derived from the
+                caller's frame.
+            stacklevel (int | None):
+                Number of frames above the caller to use when deriving the
+                namespace for SubConfig class name resolution. Use None to
+                disable caller introspection.
 
         Note:
             if cmdline=True, this will create an argument parser.
@@ -917,6 +939,12 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             import shlex
             cmdline = shlex.split(os.path.expandvars(cmdline))
 
+        if localns is None and stacklevel is not None:
+            from scriptconfig import subconfig as _subcfg_mod
+            frame = _subcfg_mod.get_stack_frame(stacklevel=stacklevel + 1)
+            localns = dict(frame.f_globals)
+            localns.update(frame.f_locals)
+
         if cmdline or ub.iterable(cmdline):
             read_argv_kwargs = {
                 'special_options': special_options,
@@ -926,6 +954,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 'allow_import': allow_import,
                 'allow_subconfig_overrides': allow_subconfig_overrides,
                 'pending_updates': pending_updates,
+                'localns': localns,
+                'stacklevel': stacklevel,
             }
             if isinstance(cmdline, dict):
                 ub.schedule_deprecation('scriptconfig', 'cmdline', 'parameter as a dictionary',
@@ -985,7 +1015,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
     def _read_argv(self, argv=None, special_options=True, strict=False, autocomplete=False,
                    allow_import=True, allow_subconfig_overrides=True, pending_updates=None,
-                   localns=None):
+                   localns=None, stacklevel=0):
         """
         Example:
             >>> import scriptconfig as scfg
@@ -1106,6 +1136,12 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             import shlex
             argv = shlex.split(argv)
 
+        if localns is None and stacklevel is not None:
+            from scriptconfig import subconfig as _subcfg_mod
+            frame = _subcfg_mod.get_stack_frame(stacklevel=stacklevel + 1)
+            localns = dict(frame.f_globals)
+            localns.update(frame.f_locals)
+
         # TODO: warn about any unused flags
         parser = self.argparse(special_options=special_options)
         has_subconfigs = getattr(self, '_has_subconfigs', False)
@@ -1120,6 +1156,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 allow_subconfig_overrides=allow_subconfig_overrides,
                 pending_updates=pending_updates,
                 localns=localns,
+                stacklevel=stacklevel,
             )
 
         if autocomplete:
@@ -1262,7 +1299,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
     def _expand_multipass_parser(self, parser, argv=None, special_options=True,
                                  allow_import=True, allow_subconfig_overrides=True,
-                                 pending_updates=None, localns=None):
+                                 pending_updates=None, localns=None, stacklevel=0):
         """
         Expand an argparse parser for configs with nested SubConfig nodes.
 
@@ -1270,23 +1307,13 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         parser for the realized tree so the full argv can be parsed in a
         single pass with the standard logic in _read_argv.
         """
-        import inspect
         from scriptconfig import subconfig as _subcfg_mod
 
         argv_list, _want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
-
-        if localns is None:
-            frame = inspect.currentframe()
-            try:
-                caller = frame.f_back if frame is not None else None
-                if caller is not None and caller.f_code.co_name in {'load', 'cli'}:
-                    caller = caller.f_back
-                localns = {}
-                if caller is not None:
-                    localns.update(caller.f_globals)
-                    localns.update(caller.f_locals)
-            finally:
-                del frame
+        if localns is None and stacklevel is not None:
+            frame = _subcfg_mod.get_stack_frame(stacklevel=stacklevel + 1)
+            localns = dict(frame.f_globals)
+            localns.update(frame.f_locals)
 
         if special_options:
             config_fpath = _subcfg_mod.scan_config_path(argv_list)
