@@ -440,8 +440,6 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             >>> config = MyConfig.cli(argv=False, verbose='auto')
             >>> config = MyConfig.cli(argv=False, data=dict(verbose=1), verbose='auto')
         """
-        import inspect
-        from scriptconfig import subconfig as _subcfg_mod
         if diagnostics.DEBUG_CONFIG:
             print(f'[scriptconfig] Call {cls.__name__}.cli')
             print(f'argv={argv}, cmdline={cmdline}')
@@ -451,121 +449,12 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             cmdline = argv
         if default is None:
             default = {}
-        if not _subcfg_mod.class_has_subconfigs(cls):
-            # Note: hack to avoid calling  __post_init__ twice
-            self = cls(_dont_call_post_init=True)
-            self.load(data, cmdline=cmdline, default=default, strict=strict,
-                      autocomplete=autocomplete, special_options=special_options,
-                      allow_import=allow_import,
-                      allow_subconfig_overrides=allow_subconfig_overrides)
-        else:
-            self = cls(_dont_call_post_init=True)
-            if default:
-                self.update_defaults(default)
-
-            _subcfg_mod.ensure_subconfigs_instantiated(self, _dont_call_post_init=True)
-            argv_list, want_help = _subcfg_mod.coerce_argv(cmdline)
-            # Capture caller namespace for evaluating bare class names in selectors.
-            frame = inspect.currentframe()
-            try:
-                caller = frame.f_back if frame is not None else None
-                localns = {}
-                if caller is not None:
-                    localns.update(caller.f_globals)
-                    localns.update(caller.f_locals)
-            finally:
-                del frame
-
-            config_fpath = None
-            if special_options:
-                config_fpath = _subcfg_mod.scan_config_path(argv_list)
-
-            if config_fpath is not None:
-                cfg_updates = _subcfg_mod.coerce_data_updates(config_fpath)
-                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
-                    raise ValueError(
-                        'SubConfig selection overrides require allow_subconfig_overrides=True'
-                    )
-                _subcfg_mod.apply_dot_updates(
-                    self, cfg_updates, allow_import=allow_import, localns=localns
-                )
-
-            if data is not None:
-                cfg_updates = _subcfg_mod.coerce_data_updates(data)
-                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
-                    raise ValueError(
-                        'SubConfig selection overrides require allow_subconfig_overrides=True'
-                    )
-                _subcfg_mod.apply_dot_updates(
-                    self, cfg_updates, allow_import=allow_import, localns=localns
-                )
-
-            if allow_subconfig_overrides:
-                # Multi-pass parsing is required when selectors can change the tree shape.
-                selector_updates, stage2_argv = _subcfg_mod.extract_selector_overrides(
-                    self, argv_list, allow_import=allow_import, localns=localns
-                )
-                if selector_updates:
-                    _subcfg_mod.apply_dot_updates(
-                        self, selector_updates, allow_import=allow_import, localns=localns
-                    )
-                flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
-                parser = flat_helper.argparse(special_options=special_options)
-            else:
-                # When selectors are disallowed, a single static parser is valid.
-                flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
-                parser = flat_helper.argparse(special_options=special_options)
-                _subcfg_mod.add_forbidden_selector_args(parser, self)
-                stage2_argv = argv_list
-
-            if autocomplete:
-                try:
-                    import argcomplete as argcomplete_mod
-                except ImportError:
-                    if autocomplete != 'auto':
-                        raise
-                else:
-                    argcomplete_mod.autocomplete(parser)
-
-            try:
-                if strict:
-                    ns_obj, extras = parser.parse_known_args(stage2_argv)
-                    if extras:
-                        unknown = ' '.join(extras)
-                        raise KeyError(f'Unknown configuration options: {unknown}')
-                else:
-                    ns_obj = parser.parse_known_args(stage2_argv)[0]
-                ns = ns_obj.__dict__
-            except (ValueError, TypeError, KeyError) as ex:
-                from scriptconfig.util import util_exception
-                note = ub.codeblock(
-                    f'''
-                    Error while attempting to parse arguments in Config.cli
-
-                    Context:
-                        argv = {stage2_argv!r}
-                        special_options = {special_options!r}
-                        strict = {strict!r}
-                        autocomplete = {autocomplete!r}
-                        self = {self!r}
-                    ''')
-                print(note)
-                ex = util_exception.add_exception_note(ex, note)
-                raise ex
-
-            special_ns = {}
-            if special_options:
-                special_ns = {k: ns.pop(k, None) for k in ['config', 'dump', 'dumps']}
-
-            explicit = getattr(parser, '_explicitly_given', set())
-            explicit_updates = {k: v for k, v in ns.items() if k in explicit}
-            if explicit_updates:
-                _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import)
-
-            _subcfg_mod.finalize_post_init(self)
-
-            if special_options:
-                _subcfg_mod.handle_special_dump(self, special_ns)
+        # Note: hack to avoid calling __post_init__ twice
+        self = cls(_dont_call_post_init=True)
+        self.load(data, cmdline=cmdline, default=default, strict=strict,
+                  autocomplete=autocomplete, special_options=special_options,
+                  allow_import=allow_import,
+                  allow_subconfig_overrides=allow_subconfig_overrides)
 
         if isinstance(verbose, str) and verbose == 'auto':
             verbose = self.get('verbose', verbose)
@@ -1027,33 +916,23 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             cmdline = shlex.split(os.path.expandvars(cmdline))
 
         if cmdline or ub.iterable(cmdline):
-            if getattr(self, '_has_subconfigs', False):
-                argv_val = cmdline if cmdline is not True else None
-                parsed = self.__class__.cli(data=pending_updates, default=None, argv=argv_val,
-                                            strict=strict, cmdline=cmdline,
-                                            autocomplete=autocomplete,
-                                            special_options=special_options,
-                                            verbose=False, allow_import=allow_import,
-                                            allow_subconfig_overrides=allow_subconfig_overrides)
-                self._data = parsed._data
-                self._default = parsed._default
-                self._subconfig_meta = parsed._subconfig_meta
-                self._has_subconfigs = parsed._has_subconfigs
-            else:
-                read_argv_kwargs = {
-                    'special_options': special_options,
-                    'strict': strict,
-                    'autocomplete': autocomplete,
-                    'argv': None,
-                }
-                if isinstance(cmdline, dict):
-                    ub.schedule_deprecation('scriptconfig', 'cmdline', 'parameter as a dictionary',
-                                            migration='The API should expose any special params explicitly',
-                                            deprecate='0.7.15', error='0.10.0', remove='1.0.0')
-                    read_argv_kwargs.update(cmdline)
-                elif ub.iterable(cmdline) or isinstance(cmdline, str):
-                    read_argv_kwargs['argv'] = cmdline
-                self._read_argv(**read_argv_kwargs)
+            read_argv_kwargs = {
+                'special_options': special_options,
+                'strict': strict,
+                'autocomplete': autocomplete,
+                'argv': None,
+                'allow_import': allow_import,
+                'allow_subconfig_overrides': allow_subconfig_overrides,
+                'pending_updates': pending_updates,
+            }
+            if isinstance(cmdline, dict):
+                ub.schedule_deprecation('scriptconfig', 'cmdline', 'parameter as a dictionary',
+                                        migration='The API should expose any special params explicitly',
+                                        deprecate='0.7.15', error='0.10.0', remove='1.0.0')
+                read_argv_kwargs.update(cmdline)
+            elif ub.iterable(cmdline) or isinstance(cmdline, str):
+                read_argv_kwargs['argv'] = cmdline
+            self._read_argv(**read_argv_kwargs)
 
         if not _dont_call_post_init:
             if 1:
@@ -1102,7 +981,9 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                     _alias_map[a] = k
         return _alias_map
 
-    def _read_argv(self, argv=None, special_options=True, strict=False, autocomplete=False):
+    def _read_argv(self, argv=None, special_options=True, strict=False, autocomplete=False,
+                   allow_import=True, allow_subconfig_overrides=True, pending_updates=None,
+                   localns=None):
         """
         Example:
             >>> import scriptconfig as scfg
@@ -1198,6 +1079,111 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         if isinstance(argv, str):
             import shlex
             argv = shlex.split(argv)
+
+        if getattr(self, '_has_subconfigs', False):
+            import inspect
+            from scriptconfig import subconfig as _subcfg_mod
+
+            argv_list, want_help = _subcfg_mod.coerce_argv(True if argv is None else argv)
+
+            if localns is None:
+                frame = inspect.currentframe()
+                try:
+                    caller = frame.f_back if frame is not None else None
+                    if caller is not None and caller.f_code.co_name in {'load', 'cli'}:
+                        caller = caller.f_back
+                    localns = {}
+                    if caller is not None:
+                        localns.update(caller.f_globals)
+                        localns.update(caller.f_locals)
+                finally:
+                    del frame
+
+            if special_options:
+                config_fpath = _subcfg_mod.scan_config_path(argv_list)
+                if config_fpath is not None:
+                    cfg_updates = _subcfg_mod.coerce_data_updates(config_fpath)
+                    if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
+                        raise ValueError(
+                            'SubConfig selection overrides require allow_subconfig_overrides=True'
+                        )
+                    _subcfg_mod.apply_dot_updates(
+                        self, cfg_updates, allow_import=allow_import, localns=localns
+                    )
+
+            if pending_updates is not None:
+                cfg_updates = pending_updates
+                if not allow_subconfig_overrides and _subcfg_mod.has_selector_overrides(self, cfg_updates):
+                    raise ValueError(
+                        'SubConfig selection overrides require allow_subconfig_overrides=True'
+                    )
+                _subcfg_mod.apply_dot_updates(
+                    self, cfg_updates, allow_import=allow_import, localns=localns
+                )
+
+            if allow_subconfig_overrides:
+                selector_updates, stage2_argv = _subcfg_mod.extract_selector_overrides(
+                    self, argv_list, allow_import=allow_import, localns=localns
+                )
+                if selector_updates:
+                    _subcfg_mod.apply_dot_updates(
+                        self, selector_updates, allow_import=allow_import, localns=localns
+                    )
+                flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=True)
+                parser = flat_helper.argparse(special_options=special_options)
+            else:
+                flat_helper = _subcfg_mod._FlatConfig.from_tree(self, include_class_options=False)
+                parser = flat_helper.argparse(special_options=special_options)
+                _subcfg_mod.add_forbidden_selector_args(parser, self)
+                stage2_argv = argv_list
+
+            if autocomplete:
+                try:
+                    import argcomplete as argcomplete_mod
+                except ImportError:
+                    if autocomplete != 'auto':
+                        raise
+                else:
+                    argcomplete_mod.autocomplete(parser)
+
+            try:
+                if strict:
+                    ns_obj, extras = parser.parse_known_args(stage2_argv)
+                    if extras:
+                        unknown = ' '.join(extras)
+                        raise KeyError(f'Unknown configuration options: {unknown}')
+                else:
+                    ns_obj = parser.parse_known_args(stage2_argv)[0]
+                ns = ns_obj.__dict__
+            except (ValueError, TypeError, KeyError) as ex:
+                from scriptconfig.util import util_exception
+                note = ub.codeblock(
+                    f'''
+                    Error while attempting to parse arguments in _read_argv
+
+                    Context:
+                        argv = {stage2_argv!r}
+                        special_options = {special_options!r}
+                        strict = {strict!r}
+                        autocomplete = {autocomplete!r}
+                        self = {self!r}
+                    ''')
+                print(note)
+                ex = util_exception.add_exception_note(ex, note)
+                raise ex
+
+            special_ns = {}
+            if special_options:
+                special_ns = {k: ns.pop(k, None) for k in ['config', 'dump', 'dumps']}
+
+            explicit = getattr(parser, '_explicitly_given', set())
+            explicit_updates = {k: v for k, v in ns.items() if k in explicit}
+            if explicit_updates:
+                _subcfg_mod.apply_dot_updates(self, explicit_updates, allow_import=allow_import, localns=localns)
+
+            if special_options:
+                _subcfg_mod.handle_special_dump(self, special_ns)
+            return self
 
         # TODO: warn about any unused flags
         parser = self.argparse(special_options=special_options)
