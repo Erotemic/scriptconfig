@@ -94,6 +94,10 @@ def resolve_localns(localns, stacklevel):
 
     Returns:
         dict | None: resolved namespace.
+
+    Example:
+        >>> ns = resolve_localns({'demo_value': 5}, stacklevel=None)
+        >>> assert ns['demo_value'] == 5
     """
     if localns is None and stacklevel is not None:
         frame = get_stack_frame(stacklevel=stacklevel + 2)
@@ -121,6 +125,17 @@ class _ForbiddenSelectorAction(argparse.Action):
 def add_forbidden_selector_args(parser, cfg):
     """
     Add selector options that always error when used.
+
+    Example:
+        >>> import argparse
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> parser = argparse.ArgumentParser()
+        >>> add_forbidden_selector_args(parser, Outer())
+        >>> assert '--inner' in parser._option_string_actions
     """
     import argparse
     message = (
@@ -146,6 +161,14 @@ class SubConfig(Value):
             Config subclasses.
         allow_import (bool): if True, allow class-path selectors
             (``module.qualname.Class``) to be dynamically imported.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> meta = SubConfig(Inner)
+        >>> inst = meta.instantiate()
+        >>> assert isinstance(inst, Inner)
     """
 
     __scfg_class__ = 'SubConfig'
@@ -187,6 +210,17 @@ class SubConfig(Value):
 
 
 def class_has_subconfigs(cls):
+    """
+    Check if a Config class declares any SubConfig defaults.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> assert class_has_subconfigs(Outer)
+    """
     default = getattr(cls, '__default__', None) or {}
     return any(isinstance(v, SubConfig) or isinstance(v, Config) for v in default.values())
 
@@ -194,6 +228,16 @@ def class_has_subconfigs(cls):
 def wrap_subconfig_defaults(cfg, _dont_call_post_init=False):
     """
     Normalize any SubConfig / Config defaults into tracked metadata.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': Inner()}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> assert cfg._has_subconfigs
     """
     cfg._subconfig_meta = {}
     cfg._has_subconfigs = False
@@ -214,6 +258,20 @@ def wrap_subconfig_defaults(cfg, _dont_call_post_init=False):
 
 
 def ensure_subconfigs_instantiated(cfg, _dont_call_post_init=False):
+    """
+    Ensure SubConfig values are instantiated on the config.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> cfg._data['inner'] = None
+        >>> ensure_subconfigs_instantiated(cfg, _dont_call_post_init=True)
+        >>> assert isinstance(cfg._data['inner'], Inner)
+    """
     if not getattr(cfg, '_has_subconfigs', False):
         return
     for key, meta in getattr(cfg, '_subconfig_meta', {}).items():
@@ -222,6 +280,14 @@ def ensure_subconfigs_instantiated(cfg, _dont_call_post_init=False):
 
 
 def coerce_argv(cmdline):
+    """
+    Normalize cmdline inputs into an argv list and help flag.
+
+    Example:
+        >>> argv, want_help = coerce_argv('--foo=bar --help')
+        >>> assert argv == ['--foo=bar', '--help']
+        >>> assert want_help
+    """
     import shlex
     import sys
     if not cmdline:
@@ -239,6 +305,15 @@ def coerce_argv(cmdline):
 
 
 def scan_config_path(argv):
+    """
+    Extract a --config value from argv if present.
+
+    Example:
+        >>> scan_config_path(['--config', 'demo.yaml'])
+        'demo.yaml'
+        >>> scan_config_path(['--config=demo.yaml'])
+        'demo.yaml'
+    """
     config_fpath = None
     for i, tok in enumerate(argv):
         if tok == '--config':
@@ -253,6 +328,11 @@ def scan_config_path(argv):
 def coerce_data_updates(data, mode=None):
     """
     Convert a data source (dict or filepath) into dotted updates.
+
+    Example:
+        >>> updates = coerce_data_updates({'a': 1, 'b': {'c': 2}})
+        >>> assert updates['a'] == 1
+        >>> assert updates['b.c'] == 2
     """
     if data is None:
         return {}
@@ -299,6 +379,13 @@ def coerce_data_updates(data, mode=None):
 
 
 def _flatten_nested(mapping, prefix=()):
+    """
+    Flatten a nested mapping into dotted key/value pairs.
+
+    Example:
+        >>> list(_flatten_nested({'a': {'b': 1}, 'c': 2}))
+        [('a.b', 1), ('c', 2)]
+    """
     if isinstance(mapping, Mapping):
         for k, v in mapping.items():
             key = '.'.join(prefix + (k,))
@@ -311,6 +398,13 @@ def _flatten_nested(mapping, prefix=()):
 
 
 def _split_option_token(argv, idx):
+    """
+    Split an argv token into (key, value, consumed).
+
+    Example:
+        >>> _split_option_token(['--a=1'], 0)
+        ('a', '1', 1)
+    """
     tok = argv[idx]
     if not tok.startswith('--'):
         return None, None, 1
@@ -326,6 +420,20 @@ def _split_option_token(argv, idx):
 
 
 def _path_is_subconfig(cfg, parts):
+    """
+    Determine if a dotted path refers to a SubConfig node.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> _path_is_subconfig(cfg, ['inner'])
+        True
+    """
     node = cfg
     for idx, part in enumerate(parts):
         if part == '__class__':
@@ -350,6 +458,19 @@ def _path_is_subconfig(cfg, parts):
 def extract_selector_overrides(cfg, argv, allow_import=True, localns=None, stacklevel=None):
     """
     Extract and apply selector-like arguments from argv in a staged manner.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Adam(scfg.Config):
+        ...     __default__ = {'lr': 1e-3}
+        >>> class Sgd(scfg.Config):
+        ...     __default__ = {'momentum': 0.9}
+        >>> class Train(scfg.Config):
+        ...     __default__ = {'optim': scfg.SubConfig(Adam, choices={'adam': Adam, 'sgd': Sgd})}
+        >>> cfg = Train(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> selectors, _ = extract_selector_overrides(cfg, ['--optim=sgd'])
+        >>> assert selectors['optim'] == 'sgd'
     """
     if stacklevel is not None:
         localns = resolve_localns(localns, stacklevel)
@@ -406,6 +527,20 @@ def extract_selector_overrides(cfg, argv, allow_import=True, localns=None, stack
 
 
 def _ensure_parent_node(cfg, parts):
+    """
+    Traverse a dotted path and return the parent node.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> parent = _ensure_parent_node(cfg, ['inner'])
+        >>> assert isinstance(parent, Inner)
+    """
     node = cfg
     for part in parts:
         if not isinstance(node, Config):
@@ -432,6 +567,13 @@ def _resolve_class_spec(meta: SubConfig, spec, allow_import, localns=None):
         2. Local namespace class names (bare identifiers)
         3. Importable module paths (if allow_import), using
            ``module.qualname.Class``.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> meta = SubConfig(Inner, choices={'inner': Inner})
+        >>> assert _resolve_class_spec(meta, 'inner', True) is Inner
     """
     if meta.choices and spec in meta.choices:
         return meta.choices[spec]
@@ -462,6 +604,22 @@ def _resolve_class_spec(meta: SubConfig, spec, allow_import, localns=None):
 
 
 def _apply_selectors_fixpoint(cfg, selectors, allow_import=True, localns=None):
+    """
+    Apply selector overrides until a fixed point is reached.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Adam(scfg.Config):
+        ...     __default__ = {'lr': 1e-3}
+        >>> class Sgd(scfg.Config):
+        ...     __default__ = {'momentum': 0.9}
+        >>> class Train(scfg.Config):
+        ...     __default__ = {'optim': scfg.SubConfig(Adam, choices={'adam': Adam, 'sgd': Sgd})}
+        >>> cfg = Train(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> _apply_selectors_fixpoint(cfg, {'optim': 'sgd'})
+        >>> assert isinstance(cfg['optim'], Sgd)
+    """
     remaining = dict(selectors)
     applied_any = True
     max_iter = 32
@@ -496,6 +654,17 @@ def _apply_selectors_fixpoint(cfg, selectors, allow_import=True, localns=None):
 def apply_dot_updates(cfg, updates, *, allow_import=True, localns=None, stacklevel=None):
     """
     Apply dotted-path updates and selectors to a nested Config / DataConfig.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> apply_dot_updates(cfg, {'inner.x': 5})
+        >>> assert cfg['inner']['x'] == 5
     """
     if not updates:
         return cfg
@@ -551,6 +720,16 @@ def apply_dot_updates(cfg, updates, *, allow_import=True, localns=None, stacklev
 def has_selector_overrides(cfg, updates):
     """
     Determine if updates contain selector overrides for SubConfig nodes.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> assert has_selector_overrides(cfg, {'inner.__class__': 'inner'})
     """
     if not updates:
         return False
@@ -570,6 +749,20 @@ def has_selector_overrides(cfg, updates):
 
 
 def flatten_defaults(cfg, prefix=(), include_class_options=False):
+    """
+    Flatten config defaults into dotted keys.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> flat = flatten_defaults(cfg)
+        >>> assert 'inner.x' in flat
+    """
     flat = OrderedDict()
     for key, value in cfg._data.items():
         if key in getattr(cfg, '_subconfig_meta', {}):
@@ -595,6 +788,17 @@ def flatten_defaults(cfg, prefix=(), include_class_options=False):
 def flat_config_from_tree(cfg, include_class_options=False):
     """
     Build a temporary Config instance to parse realized leaf arguments.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> flat = flat_config_from_tree(cfg)
+        >>> assert 'inner.x' in flat.__default__
     """
     defaults = flatten_defaults(cfg, include_class_options=include_class_options)
     name = f'_Flat_{cfg.__class__.__name__}'
@@ -611,6 +815,19 @@ def expand_multipass_parser(cfg, parser, argv=None, special_options=True,
     This staged parse realizes selector overrides first, then rebuilds a
     parser for the realized tree so the full argv can be parsed in a
     single pass with the standard logic in _read_argv.
+
+    Example:
+        >>> import argparse
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> parser = argparse.ArgumentParser()
+        >>> parser, argv = expand_multipass_parser(cfg, parser, argv=['--inner.x=2'])
+        >>> assert '--inner.x' in parser._option_string_actions
     """
     argv_list, _want_help = coerce_argv(True if argv is None else argv)
 
@@ -671,6 +888,19 @@ def expand_multipass_parser(cfg, parser, argv=None, special_options=True,
 
 
 def finalize_post_init(cfg):
+    """
+    Run __post_init__ once on a nested config tree.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> finalize_post_init(cfg)
+    """
     if isinstance(cfg, Config):
         if not getattr(cfg, '_scfg_post_init_done', False):
             cfg.__post_init__()
@@ -682,12 +912,29 @@ def finalize_post_init(cfg):
 
 
 def _class_identifier(cls):
+    """
+    Return a module-qualified class identifier.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> assert _class_identifier(scfg.Config).endswith('.Config')
+    """
     return f'{cls.__module__}.{cls.__name__}'
 
 
 def find_subconfig_paths(cfg):
     """
     Yield dotted paths to SubConfig nodes in the realized tree.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> assert 'inner' in find_subconfig_paths(cfg)
     """
     paths = []
     stack = [([], cfg)]
@@ -703,6 +950,20 @@ def find_subconfig_paths(cfg):
 
 
 def config_to_nested_dict(cfg, include_class=True):
+    """
+    Convert a realized config tree to a nested dictionary.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': scfg.SubConfig(Inner)}
+        >>> cfg = Outer(_dont_call_post_init=True)
+        >>> wrap_subconfig_defaults(cfg, _dont_call_post_init=True)
+        >>> data = config_to_nested_dict(cfg)
+        >>> assert 'inner' in data
+    """
     def unwrap(val):
         if isinstance(val, Value):
             return val.value
