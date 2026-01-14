@@ -2,9 +2,12 @@
 Note: this module may be deprecated / repurposed for the actual command line
 interface scriptconfig will use.
 """
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
 
 
-def quick_cli(default, name=None):
+def quick_cli(default: Dict[str, Any], name: Optional[str] = None) -> Any:
     """
     Quickly create a CLI
 

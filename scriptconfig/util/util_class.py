@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any, Optional
+
 class class_or_instancemethod(classmethod):
     """
     A decorator that allows a method to behave as a class or instance method.
@@ -27,7 +31,7 @@ class class_or_instancemethod(classmethod):
         >>> print(X().foo())
         bound to the instance
     """
-    def __get__(self, instance, owner=None):
+    def __get__(self, instance: Any, owner: Optional[Any] = None):
         """
         Descriptor method
 

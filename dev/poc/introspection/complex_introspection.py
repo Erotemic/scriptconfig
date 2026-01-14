@@ -59,7 +59,6 @@ Ignore:
     print(text)
 """
 
-from collections import OrderedDict
 from collections import abc
 from collections import defaultdict
 from collections import namedtuple
@@ -890,7 +889,6 @@ mapping_origin_types = {
     MutableMapping,
     abc.Mapping,
     abc.MutableMapping,
-    OrderedDict,
 }
 
 

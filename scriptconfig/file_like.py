@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from os.path import exists
+from typing import Any, IO, Union
 import os
 
 
@@ -6,7 +9,7 @@ class FileLike:
     """
     Allows input to be a path or a file object
     """
-    def __init__(self, path_or_file, mode='r'):
+    def __init__(self, path_or_file: Union[str, os.PathLike, IO[str]], mode: str = 'r') -> None:
         if isinstance(path_or_file, (str, os.PathLike)):
             _input_type = 'path'
             if not exists(path_or_file):
@@ -24,13 +27,13 @@ class FileLike:
         self._input_type = _input_type
         self._path_or_file = path_or_file
 
-    def __enter__(self):
+    def __enter__(self) -> IO[str]:
         if self._input_type == 'path':
             self._file = open(self._path_or_file, self.mode)
         else:
             self._file = self._path_or_file
         return self._file
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: Any) -> None:
         if self._input_type == 'path':
             self._file.close()
