@@ -1,9 +1,18 @@
+from __future__ import annotations
+
+from typing import Any, Optional, Union
+
 __all__ = ['smartcast']
 
 NoneType = type(None)
 
 
-def smartcast(item, astype=None, strict=False, allow_split='auto'):
+def smartcast(
+    item: Union[str, Any],
+    astype: Optional[Union[type, str]] = None,
+    strict: bool = False,
+    allow_split: Union[bool, str] = 'auto',
+) -> Any:
     r"""
     Converts a string into a standard python type.
 
@@ -196,7 +205,7 @@ def smartcast(item, astype=None, strict=False, allow_split='auto'):
                 return astype(item)
 
 
-def _as_smart_type(item, astype):
+def _as_smart_type(item: Any, astype: Any) -> Any:
     """
     casts item to type, and tries to be clever when item is a string, otherwise
     it simply calls `astype(item)`.

@@ -1,6 +1,9 @@
 """
 Argparse Extensions
 """
+from __future__ import annotations
+
+from typing import Any, Iterable, List, Optional, Tuple
 import argparse
 import os
 import sys
@@ -105,8 +108,15 @@ class BooleanFlagOrKeyValAction(_Base):
         >>>     print(f'args={args} -> {ns}')
         >>>     assert ns['flag'] == want
     """
-    def __init__(self, option_strings, dest, default=None, required=False,
-                 help=None, type=None):
+    def __init__(
+        self,
+        option_strings: Iterable[str],
+        dest: str,
+        default: Optional[Any] = None,
+        required: bool = False,
+        help: Optional[str] = None,
+        type: Optional[type] = None,
+    ) -> None:
 
         _option_strings = []
         for option_string in option_strings:
@@ -132,7 +142,7 @@ class BooleanFlagOrKeyValAction(_Base):
         argparse.Action.__init__(self, **actionkw)
         # super().__init__(**actionkw)
 
-    def format_usage(self):
+    def format_usage(self) -> str:
         # I thought this was used in formatting the help, but it seems like
         # we dont have much control over that here.
         if self.default is False:
@@ -145,14 +155,20 @@ class BooleanFlagOrKeyValAction(_Base):
             _option_strings = self.option_strings
         return ' | '.join(_option_strings)
 
-    def _mark_parsed_argument(action, parser):
+    def _mark_parsed_argument(action, parser: argparse.ArgumentParser) -> None:
         if not hasattr(parser, '_explicitly_given'):
             # We might be given a subparser / parent parser
             # and not the original one we created.
             parser._explicitly_given = set()
         parser._explicitly_given.add(action.dest)
 
-    def __call__(action, parser, namespace, values, option_string=None):
+    def __call__(
+        action,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: Optional[str] = None,
+    ) -> None:
         """
         Args:
             parser (argparse.ArgumentParser): Parser instance.
@@ -240,7 +256,13 @@ class CounterOrKeyValAction(BooleanFlagOrKeyValAction):
         >>>     print(f'args={args} -> {ns}')
         >>>     assert ns['flag'] == want
     """
-    def __call__(action, parser, namespace, values, option_string=None):
+    def __call__(
+        action,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: Optional[str] = None,
+    ) -> None:
         if option_string in action.option_strings:
             # Was the positive or negated key given?
             key_default = not option_string.startswith('--no-')
@@ -268,14 +290,14 @@ class RawDescriptionDefaultsHelpFormatter(
         _RawDescriptionHelpFormatter,
         _ArgumentDefaultsHelpFormatter):
 
-    group_name_formatter = str  # revert rich-argparse title change
+    group_name_formatter: type = str  # revert rich-argparse title change
 
     # Set these classvars to prevent rich_argparase from interpreting user data
     # as rich markup, and could lead to things like lists not being rendered.
     help_markup = False
     text_markup = False
 
-    def _concise_option_strings(self, action):
+    def _concise_option_strings(self, action: argparse.Action) -> List[str]:
         # When working with fuzzy hyphens only show one variant of each
         # possibility.
         display_option_strings = []
@@ -287,7 +309,7 @@ class RawDescriptionDefaultsHelpFormatter(
                 display_option_strings.append(s)
         return display_option_strings
 
-    def _format_action_invocation(self, action):
+    def _format_action_invocation(self, action: argparse.Action) -> str:
         """
         Custom mixin to reduce clutter from accepting fuzzy hyphens
         """
@@ -329,7 +351,7 @@ class RawDescriptionDefaultsHelpFormatter(
                         parts.append('%s %s' % (option_string, args_string))
             return ', '.join(parts)
 
-    def _rich_format_action_invocation(self, action):
+    def _rich_format_action_invocation(self, action: argparse.Action) -> Any:
         """
         Mirrors _format_action_invocation but for rich-argparse
         """
@@ -376,11 +398,15 @@ class CompatArgumentParser(argparse.ArgumentParser):
     Python 3.6 - 3.8
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.exit_on_error = kwargs.pop('exit_on_error', True)
         super().__init__(*args, **kwargs)
 
-    def parse_known_args(self, args=None, namespace=None):
+    def parse_known_args(
+        self,
+        args: Optional[Iterable[str]] = None,
+        namespace: Optional[argparse.Namespace] = None,
+    ) -> Tuple[argparse.Namespace, List[str]]:
         """
         This is the Python 3.10 implementation of this function.
         We define this for Python 3.6-3.8 compatibility where the exit_on_error

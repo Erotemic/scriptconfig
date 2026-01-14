@@ -84,10 +84,14 @@ TODO:
     - [ ] Integrate with Hyrda
     - [x] Dataclass support - See DataConfig
 """
+from __future__ import annotations
+
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+from os import PathLike
+import argparse
 import os
 import ubelt as ub
 import itertools as it
-from collections import OrderedDict
 from scriptconfig import _ubelt_repr_extension
 from scriptconfig import smartcast
 from scriptconfig.dict_like import DictLike
@@ -106,6 +110,8 @@ omegaconf: Any
 OmegaConf: object
 """
 
+ConfigT = TypeVar('ConfigT', bound='Config')
+
 
 # def _is_autoreload_enabled():
 #     """
@@ -122,7 +128,7 @@ OmegaConf: object
 #         return ipy.magics_manager.magics['line']['autoreload'].__self__._reloader.enabled
 
 
-def scfg_isinstance(item, cls):
+def scfg_isinstance(item: object, cls: type) -> bool:
     """
     use instead isinstance for scfg types when reloading
 
@@ -141,7 +147,7 @@ def scfg_isinstance(item, cls):
         return isinstance(item, cls)
 
 
-def define(default={}, name=None):
+def define(default: Dict[str, Any] = {}, name: Optional[str] = None):
     """
     Alternate method for defining a custom Config type
 
@@ -181,7 +187,14 @@ class MetaConfig(type):
     """
 
     @staticmethod
-    def __new__(mcls, name, bases, namespace, *args, **kwargs):
+    def __new__(
+        mcls: type,
+        name: str,
+        bases: Tuple[type, ...],
+        namespace: Dict[str, Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> type:
         if diagnostics.DEBUG_META_CONFIG:
             print(f'MetaConfig.__new__ called: {mcls=} {name=} {bases=} {namespace=} {args=} {kwargs=}')
 
@@ -314,8 +327,13 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
     __default__ = {}
     # __allow_newattr__ = False
 
-    def __init__(self, data=None, default=None, cmdline=False,
-                 _dont_call_post_init=False):
+    def __init__(
+        self,
+        data: Optional[object] = None,
+        default: Optional[Dict[str, Any]] = None,
+        cmdline: Union[bool, List[str], str, Dict[str, Any]] = False,
+        _dont_call_post_init: bool = False,
+    ) -> None:
         """
         Args:
             data (object): filepath, dict, or None
@@ -343,7 +361,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         """
         # The _data attribute holds
         self._data = None
-        self._default = OrderedDict()
+        self._default = {}
         cls_default = getattr(self, '__default__', getattr(self, 'default', None))
         if cls_default:
             # allow for class attributes to specify the default
@@ -353,9 +371,18 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                   _dont_call_post_init=_dont_call_post_init)
 
     @classmethod
-    def cli(cls, data=None, default=None, argv=None, strict=True,
-            cmdline=True, autocomplete='auto', special_options=True,
-            transition_helpers=True, verbose=False):
+    def cli(
+        cls: Type[ConfigT],
+        data: Optional[Union[Dict[str, Any], str]] = None,
+        default: Optional[Dict[str, Any]] = None,
+        argv: Optional[Union[Sequence[str], str, bool]] = None,
+        strict: bool = True,
+        cmdline: bool = True,
+        autocomplete: Union[bool, str] = 'auto',
+        special_options: bool = True,
+        transition_helpers: bool = True,
+        verbose: Union[bool, str] = False,
+    ) -> ConfigT:
         """
         Create a command-line aware config instance.
 
@@ -460,7 +487,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         return self
 
     @classmethod
-    def demo(cls):
+    def demo(cls: Type[ConfigT]) -> ConfigT:
         """
         Create an example config class for test cases
 
@@ -494,7 +521,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         self = DemoConfig()
         return self
 
-    def __json__(self):
+    def __json__(self) -> Dict[str, Any]:
         """
         Creates a JSON serializable representation of this config object.
 
@@ -532,10 +559,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 walker[path] = list(item)
             elif numpy is not None and isinstance(item, numpy.ndarray):
                 walker[path] = item.tolist()
-            elif isinstance(item, OrderedDict):
-                ...
             elif isinstance(item, dict):
-                walker[path] = OrderedDict(sorted(item.items()))
+                walker[path] = dict(sorted(item.items()))
             else:
                 if hasattr(item, '__json__'):
                     return item.__json__()
@@ -544,10 +569,10 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                         'Unknown JSON serialization for type {!r}'.format(type(item)))
         return data
 
-    def __nice__(self):
+    def __nice__(self) -> str:
         return str(self.asdict())
 
-    def getitem(self, key):
+    def getitem(self, key: str) -> Any:
         """
         Dictionary-like method to get the value of a key.
 
@@ -568,7 +593,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             value = value.value
         return value
 
-    def setitem(self, key, value):
+    def setitem(self, key: str, value: Any) -> None:
         """
         Dictionary-like method to set the value of a key.
 
@@ -598,10 +623,10 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 # raw data.
                 self._data[key] = value
 
-    def delitem(self, key):
+    def delitem(self, key: str) -> None:
         raise Exception('cannot delete items from a config')
 
-    def keys(self):
+    def keys(self) -> Iterable[str]:
         """
         Dictionary-like keys method
 
@@ -610,7 +635,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         """
         return self._data.keys()
 
-    def update_defaults(self, default):
+    def update_defaults(self, default: Dict[str, Any]) -> None:
         """
         Update the instance-level default values
 
@@ -633,9 +658,17 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         self._default.update(default)
         self._alias_map = None
 
-    def load(self, data=None, cmdline=False, mode=None, default=None,
-             strict=False, autocomplete=False, _dont_call_post_init=False,
-             special_options=True):
+    def load(
+        self: ConfigT,
+        data: Optional[Union[PathLike, str, Dict[str, Any]]] = None,
+        cmdline: Union[bool, List[str], str, Dict[str, Any]] = False,
+        mode: Optional[str] = None,
+        default: Optional[Dict[str, Any]] = None,
+        strict: bool = False,
+        autocomplete: bool = False,
+        _dont_call_post_init: bool = False,
+        special_options: bool = True,
+    ) -> ConfigT:
         """
         Updates the configuration from a given data source.
 
@@ -1133,11 +1166,11 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 sys.exit(1)
         return self
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """ overloadable function called after each load """
         ...
 
-    def dump(self, stream=None, mode=None):
+    def dump(self, stream: Optional[FileLike] = None, mode: Optional[str] = None) -> None:
         """
         Write configuration file to a file or stream
 
@@ -1149,17 +1182,14 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             mode = 'yaml'
         if mode == 'yaml':
             import yaml
-            def order_rep(dumper, data):
-                return dumper.represent_mapping('tag:yaml.org,2002:map', data.items(), flow_style=False)
-            yaml.add_representer(OrderedDict, order_rep)
             yaml.safe_dump(dict(self.items()), stream)
         elif mode == 'json':
             import json
-            json.dump(OrderedDict(self.items()), stream, indent=4)
+            json.dump(dict(self.items()), stream, indent=4)
         else:
             raise KeyError(mode)
 
-    def dumps(self, mode=None):
+    def dumps(self, mode: Optional[str] = None) -> str:
         """
         Write the configuration to a text object and return it
 
@@ -1174,7 +1204,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         self.dump(stream=stream, mode=mode)
         return stream.getvalue()
 
-    def __getattr__(self, key):
+    def __getattr__(self, key: str) -> Any:
         # Handle aliasing of old "default" and new "__default__"
         if key == 'default' and hasattr(self, '__default__'):
             return self.__default__
@@ -1245,7 +1275,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             parserkw['allow_abbrev'] = self.__allow_abbrev__
         return parserkw
 
-    def port_to_dataconf(self, style='dataconf'):
+    def port_to_dataconf(self, style: str = 'dataconf') -> str:
         """
         Helper that will write the code to express this config as a DataConfig.
 
@@ -1274,7 +1304,13 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         return text
 
     @classmethod
-    def _write_code(self, entries, name='MyConfig', style='dataconf', description=None):
+    def _write_code(
+        self,
+        entries: Iterable[Tuple[str, Dict[str, Any]]],
+        name: str = 'MyConfig',
+        style: str = 'dataconf',
+        description: Optional[str] = None,
+    ) -> str:
 
         if style == 'dataconf':
             indent = ' ' * 4
@@ -1340,7 +1376,12 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         return text
 
     @classmethod
-    def port_from_click(cls, click_main, name=None, style='dataconf'):
+    def port_from_click(
+        cls,
+        click_main: Any,
+        name: Optional[str] = None,
+        style: str = 'dataconf',
+    ) -> str:
         """
         Prints scriptconfig code that roughly implements some click CLI.
 
@@ -1403,7 +1444,12 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         return instance.port_to_dataconf(style=style)
 
     @classmethod
-    def port_from_argparse(cls, parser, name='MyConfig', style='dataconf'):
+    def port_from_argparse(
+        cls,
+        parser: argparse.ArgumentParser,
+        name: str = 'MyConfig',
+        style: str = 'dataconf',
+    ) -> str:
         """
         Generate the corresponding scriptconfig code from an existing argparse
         instance.
@@ -1604,7 +1650,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
     # Backwards compatibility, deprecate and remove
     port_argparse = port_from_argparse
 
-    def port_to_argparse(self):
+    def port_to_argparse(self) -> str:
         """
         Attempt to make code for a nearly-equivalent argparse object.
 
@@ -1695,7 +1741,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
     #     ...
 
     @property
-    def namespace(self):
+    def namespace(self) -> argparse.Namespace:
         """
         Access a namespace like object for compatibility with argparse
 
@@ -1705,7 +1751,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         from argparse import Namespace
         return Namespace(**dict(self))
 
-    def to_omegaconf(self):
+    def to_omegaconf(self) -> Any:
         """
         Creates an omegaconfig version of this.
 
@@ -1722,7 +1768,11 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         oconf = OmegaConf.create(self.to_dict())
         return oconf
 
-    def argparse(self, parser=None, special_options=False):
+    def argparse(
+        self,
+        parser: Optional[argparse.ArgumentParser] = None,
+        special_options: bool = False,
+    ) -> argparse.ArgumentParser:
         """
         construct or update an argparse.ArgumentParser CLI parser
 

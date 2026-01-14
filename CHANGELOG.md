@@ -4,7 +4,11 @@ This changelog follows the specifications detailed in: [Keep a Changelog](https:
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), although we have not yet reached a `1.0.0` release.
 
 
-## Version 0.8.5 - Unreleased
+## Version 0.9.0 - Unreleased
+
+### Changed
+* Replaced ordered dictionaries with standard dictionaries across the codebase.
+* Moved type annotations into the runtime modules and removed `.pyi` stubs.
 
 ### Fixed
 * Corner case for BooleanFlagOrKeyValAction, only smartcast if type is not specified
