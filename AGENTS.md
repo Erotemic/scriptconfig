@@ -59,8 +59,10 @@
 
 #### 5) Contribution Rules / Invariants
 
+* Agents should populate `CHANGELOG.md` with relevant changes if an entry is missing.
+* Agents should run the full test suite (see `run_tests.py`) before committing changes.
 * Prefer **`DataConfig`** for new features; maintain backwards compatibility for `Config` when touching shared logic.
-* Keep `.pyi` stubs and `py.typed` aligned with public API changes.
+* Keep `py.typed` aligned with public API changes.
 * Preserve existing CLI behaviors (aliases, positional handling, counter flags); update/add tests when changing parsing/casting.
 * Optional deps (e.g., rich argparse / argcomplete / numpy / omegaconf) must remain optional and imports should be guarded.
 * Retain `PYTHON_ARGCOMPLETE_OK` marker if modifying entrypoints.

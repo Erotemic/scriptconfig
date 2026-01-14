@@ -53,15 +53,19 @@ Example:
 Notes:
     https://docs.python.org/3/library/dataclasses.html
 """
-from collections import OrderedDict
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar
 from scriptconfig.config import Config, MetaConfig
 from scriptconfig.value import Value
 import warnings
 import ubelt as ub
 from scriptconfig import diagnostics
 
+DataConfigT = TypeVar('DataConfigT', bound='DataConfig')
 
-def dataconf(cls):
+
+def dataconf(cls: type) -> type:
     """
     Aims to be similar to the dataclass decorator
 
@@ -180,7 +184,14 @@ class MetaDataConfig(MetaConfig):
     without the extra boilerplate.
     """
     @staticmethod
-    def __new__(mcls, name, bases, namespace, *args, **kwargs):
+    def __new__(
+        mcls: type,
+        name: str,
+        bases: Tuple[type, ...],
+        namespace: Dict[str, Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> type:
         # Defining a new class that inherits from DataConfig
         if diagnostics.DEBUG_META_DATA_CONFIG:
             print(f'MetaDataConfig.__new__ called: {mcls=} {name=} {bases=} {namespace=} {args=} {kwargs=}')
@@ -293,14 +304,14 @@ class DataConfig(Config, metaclass=MetaDataConfig):
     __description__ = None
     __epilog__ = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         "__autogenerateme__"
         # Private internal hack to prevent __post_init__ from being called
         # if we are immediately going to load and call it again.
         _dont_call_post_init = kwargs.pop('_dont_call_post_init', False)
 
         self._data = None
-        self._default = OrderedDict()
+        self._default = {}
         if getattr(self, '__default__', None):
             # allow for class attributes to specify the default
             self._default.update(self.__default__)
@@ -319,7 +330,7 @@ class DataConfig(Config, metaclass=MetaDataConfig):
         if not _dont_call_post_init:
             self.__post_init__()
 
-    def __getattr__(self, key):
+    def __getattr__(self, key: str) -> Any:
         # Note: attributes that mirror the public API will be suppressed
         # It is generally better to use the dictionary interface instead
         # But we want this to be data-classy, so...
@@ -333,11 +344,11 @@ class DataConfig(Config, metaclass=MetaDataConfig):
                 raise AttributeError(key)
         raise AttributeError(key)
 
-    def __dir__(self):
+    def __dir__(self) -> List[str]:
         initial = super().__dir__()
         return initial + list(self.keys())
 
-    def __setattr__(self, key, value):
+    def __setattr__(self, key: str, value: Any) -> None:
         """
         Forwards setattrs in the configuration to the dictionary interface,
         otherwise passes it through.
@@ -361,7 +372,13 @@ class DataConfig(Config, metaclass=MetaDataConfig):
                 self.__dict__[key] = value
 
     @classmethod
-    def legacy(cls, cmdline=False, data=None, default=None, strict=False):
+    def legacy(
+        cls: Type[DataConfigT],
+        cmdline: bool = False,
+        data: Optional[Any] = None,
+        default: Optional[Any] = None,
+        strict: bool = False,
+    ) -> DataConfigT:
         """
         Calls the original "load" way of creating non-dataclass config objects.
         This may be refactored in the future.
@@ -379,7 +396,11 @@ class DataConfig(Config, metaclass=MetaDataConfig):
         return self
 
     @classmethod
-    def parse_args(cls, args=None, namespace=None):
+    def parse_args(
+        cls: Type[DataConfigT],
+        args: Optional[Any] = None,
+        namespace: Optional[Any] = None,
+    ) -> DataConfigT:
         """
         Mimics argparse.ArgumentParser.parse_args
         """
@@ -389,7 +410,11 @@ class DataConfig(Config, metaclass=MetaDataConfig):
         return cls.cli(argv=args, strict=True)
 
     @classmethod
-    def parse_known_args(cls, args=None, namespace=None):
+    def parse_known_args(
+        cls: Type[DataConfigT],
+        args: Optional[Any] = None,
+        namespace: Optional[Any] = None,
+    ) -> DataConfigT:
         """
         Mimics argparse.ArgumentParser.parse_known_args
         """
@@ -399,7 +424,7 @@ class DataConfig(Config, metaclass=MetaDataConfig):
         return cls.cli(argv=args, strict=False)
 
     @property
-    def default(self):
+    def default(self) -> Dict[str, Any]:
         import ubelt as ub
         ub.schedule_deprecation(
             'scriptconfig', 'default', 'attribute',
@@ -417,7 +442,7 @@ class DataConfig(Config, metaclass=MetaDataConfig):
         return func
 
 
-def __example__():
+def __example__() -> None:
     """
     Doctests are broken for DataConfigs, so putting them here.
     """

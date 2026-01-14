@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Iterable, List, Optional, Union
 from . import smartcast as smartcast_mod
 import re
 import ubelt as ub
@@ -7,7 +10,7 @@ long_prefix_pat = re.compile('--[^-].*')
 short_prefix_pat = re.compile('-[^-].*')
 
 
-def normalize_option_str(s):
+def normalize_option_str(s: str) -> str:
     return s.lstrip('-').replace('-', '_')
 
 
@@ -85,10 +88,24 @@ class Value(ub.NiceRepr):
     # hack to work around isinstance with IPython %autoreload magic
     __scfg_class__ = 'Value'
 
-    def __init__(self, value=None, type=None, help=None, choices=None,
-                 position=None, isflag=False, nargs=None, alias=None,
-                 required=False, short_alias=None, group=None,
-                 mutex_group=None, tags=None, *, default=None):
+    def __init__(
+        self,
+        value: Optional[Any] = None,
+        type: Optional[Union[type, str]] = None,
+        help: Optional[str] = None,
+        choices: Optional[Iterable[Any]] = None,
+        position: Optional[int] = None,
+        isflag: bool = False,
+        nargs: Optional[Any] = None,
+        alias: Optional[Union[List[str], str]] = None,
+        required: bool = False,
+        short_alias: Optional[Union[List[str], str]] = None,
+        group: Optional[str] = None,
+        mutex_group: Optional[str] = None,
+        tags: Optional[Any] = None,
+        *,
+        default: Optional[Any] = None,
+    ) -> None:
 
         if default is not None:
             if value is not None:
@@ -137,31 +154,31 @@ class Value(ub.NiceRepr):
                     import warnings
                     warnings.warn('Do not prefix short aliases with a -, it is implicit')
 
-    def __nice__(self):
+    def __nice__(self) -> str:
         # return '{!r}: {!r}'.format(self.type, self.value)
         return f'{self.value!r}'
 
-    def update(self, value):
+    def update(self, value: Any) -> Value:
         self.value = self.cast(value)
         return self
 
-    def cast(self, value):
+    def cast(self, value: Any) -> Any:
         if isinstance(value, str):
             # FIXME: We want to move away from allow_split=True
             value = smartcast_mod.smartcast(value, self.type,
                                             allow_split='auto')
         return value
 
-    def copy(self):
+    def copy(self) -> Value:
         import copy
         return copy.copy(self)
 
     @property
-    def help(self):
+    def help(self) -> Any:
         # I'm not sure if I want to expose everything in parsekw or not.
         return self.parsekw['help']
 
-    def _to_value_kw(self):
+    def _to_value_kw(self) -> Dict[str, Any]:
         """
         Used in port-to-dataconf and port-to-argparse
         """
@@ -278,7 +295,7 @@ class Flag(Value):
     """
     Exactly the same as a Value except isflag default to True
     """
-    def __init__(self, value=False, **kwargs):
+    def __init__(self, value: bool = False, **kwargs: Any) -> None:
         isflag = kwargs.get('isflag', True)
         assert isflag, 'Cannot disable isflag on a Flag value'
         kwargs['isflag'] = isflag
@@ -294,10 +311,15 @@ class Path(Value):
         Not well maintained or used, may be removed or refactored in the
         future.
     """
-    def __init__(self, value=None, help=None, alias=None):
+    def __init__(
+        self,
+        value: Optional[Any] = None,
+        help: Optional[str] = None,
+        alias: Optional[Union[List[str], str]] = None,
+    ) -> None:
         super(Path, self).__init__(value, str, help=help, alias=alias)
 
-    def cast(self, value):
+    def cast(self, value: Any) -> Any:
         if isinstance(value, str):
             value = ub.expandpath(value)
         return value
@@ -326,7 +348,7 @@ class PathList(Value):
         >>> assert len(PathList(['/a', '/b']).value) == 2
     """
 
-    def cast(self, value=None):
+    def cast(self, value: Optional[Any] = None) -> Any:
         if isinstance(value, str):
             import glob
             paths1 = sorted(glob.glob(ub.expandpath(value)))
@@ -567,7 +589,7 @@ def _resolve_alias(name, _value, fuzzy_hyphens):
     return option_strings
 
 
-def scfg_isinstance(item, cls):
+def scfg_isinstance(item: object, cls: type) -> bool:
     """
     use instead isinstance for scfg types when reloading
 
