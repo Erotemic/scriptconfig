@@ -342,7 +342,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         >>> config1 = MyConfig()
         >>> config2 = MyConfig(default=dict(option1='baz'))
     """
-    __default__: Dict[str, Any] = {}
+    __default__: Dict[str, Value] = {}
     # __allow_newattr__ = False
 
     def __init__(self,
@@ -377,7 +377,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         """
         # The _data attribute holds
         self._data: Dict[str, Any] = {}
-        self._default: Dict[str, Any] = {}
+        self._default: Dict[str, Value] = {}
         self._subconfig_meta: Dict[str, Any] = {}
         self._has_subconfigs = False
         self._scfg_post_init_done = False

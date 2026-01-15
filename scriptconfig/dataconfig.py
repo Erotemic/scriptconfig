@@ -305,7 +305,7 @@ class DataConfig(Config, metaclass=MetaDataConfig):
     # Not sure if having a docstring for this will break user-configs.
     # No docstring, because user-specified docstring will define the default
     # __description__.
-    __default__: Dict[str, Any] = {}
+    __default__: Dict[str, Value] = {}
     __description__: Optional[str] = None
     __epilog__: Optional[str] = None
 
@@ -316,7 +316,7 @@ class DataConfig(Config, metaclass=MetaDataConfig):
         _dont_call_post_init = kwargs.pop('_dont_call_post_init', False)
 
         self._data: Dict[str, Any] = {}
-        self._default: Dict[str, Any] = {}
+        self._default: Dict[str, Value] = {}
         if getattr(self, '__default__', None):
             # allow for class attributes to specify the default
             self._default.update(self.__default__)

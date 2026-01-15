@@ -392,8 +392,6 @@ def _value_add_argument_to_parser(value, _value, self, parser, key, fuzzy_hyphen
         required = _value.required
         isflag = _value.isflag
         positional = _value.position
-        if isinstance(value, Value):
-            value = value.value
 
         # If the args are flagged as belonging to a group, resepct that.
         if _value.group is not None:
@@ -501,8 +499,6 @@ def _value_add_argument_kw(value, _value, self, key, fuzzy_hyphens=0):
         required = _value.required
         isflag = _value.isflag
         positional = _value.position
-        if isinstance(value, Value):
-            value = value.value
 
         # TODO: handle groups
         # If the args are flagged as belonging to a group, resepct that.
