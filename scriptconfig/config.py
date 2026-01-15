@@ -881,7 +881,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 if mode is None:
                     # Default to yaml
                     mode = 'yaml'
-                with FileLike(cast(Union[str, os.PathLike[str], IO[Any]], data), 'r') as file:
+                with FileLike(cast(Union[str, os.PathLike, IO[Any]], data), 'r') as file:
                     if mode == 'yaml':
                         import yaml
                         user_config = yaml.load(file, Loader=yaml.SafeLoader)

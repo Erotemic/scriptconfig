@@ -9,10 +9,10 @@ class FileLike:
     """
     Allows input to be a path or a file object
     """
-    def __init__(self, path_or_file: Union[str, os.PathLike[str], IO[Any]],
+    def __init__(self, path_or_file: Union[str, os.PathLike, IO[Any]],
                  mode: str = 'r') -> None:
         self._file: IO[Any]
-        self._path: Optional[Union[str, os.PathLike[str]]] = None
+        self._path: Optional[Union[str, os.PathLike]] = None
         self._file_obj: Optional[IO[Any]] = None
         if isinstance(path_or_file, (str, os.PathLike)):
             _input_type = 'path'
