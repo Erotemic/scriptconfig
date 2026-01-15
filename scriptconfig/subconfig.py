@@ -160,8 +160,6 @@ class SubConfig(Value):
         >>> assert isinstance(inst, Inner)
     """
 
-    __scfg_class__ = 'SubConfig'
-
     def __init__(self, default, *, choices=None, allow_import=None, help=None):
         if inspect.isclass(default):
             if not issubclass(default, Config):

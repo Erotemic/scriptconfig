@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Union
+from typing import Any, Callable, Union
 
 __all__ = ['smartcast']
 
@@ -176,29 +176,22 @@ def smartcast(item: Any,
             if astype == eval:
                 return item
             elif isinstance(astype, str):
-                if astype == 'eval':
-                    _astype = _identity
-                elif astype == 'int':
-                    _astype = int
-                elif astype == 'bool':
-                    _astype = bool
-                elif astype == 'float':
-                    _astype = float
-                elif astype == 'complex':
-                    _astype = complex
-                elif astype == 'str':
-                    _astype = str
-                elif astype == 'tuple':
-                    _astype = tuple
-                elif astype == 'list':
-                    _astype = list
-                elif astype == 'set':
-                    _astype = set
-                elif astype == 'frozenset':
-                    _astype = frozenset
-                else:
-                    raise KeyError('unknown string astype={!r}'.format(astype))
-                return _astype(item)
+                cast_map: dict[str, Callable[[Any], Any]] = {
+                    'eval': _identity,
+                    'int': int,
+                    'bool': bool,
+                    'float': float,
+                    'complex': complex,
+                    'str': str,
+                    'tuple': tuple,
+                    'list': list,
+                    'set': set,
+                    'frozenset': frozenset,
+                }
+                try:
+                    return cast_map[astype](item)
+                except KeyError as exc:
+                    raise KeyError('unknown string astype={!r}'.format(astype)) from exc
             else:
                 return astype(item)
 
