@@ -86,6 +86,7 @@ TODO:
 """
 from __future__ import annotations
 
+import inspect
 import os
 import ubelt as ub
 import itertools as it
@@ -154,6 +155,47 @@ def define(default: Mapping[str, Any] = {}, name: Optional[str] = None) -> type:
     return cast(Type["Config"], cls)
 
 
+def _normalize_class_defaults(defaults):
+    """
+    Normalize class-level defaults to ensure Value/SubConfig metadata is present.
+    """
+    normalized = {}
+    if defaults is None:
+        defaults = {}
+    config_cls = globals().get('Config')
+    if config_cls is None:
+        return dict(defaults)
+    from scriptconfig.subconfig import SubConfig
+    for key, value in defaults.items():
+        if isinstance(value, SubConfig):
+            normalized_value = value
+        elif isinstance(value, Value):
+            inner = value.value
+            if isinstance(inner, SubConfig):
+                if value.help and not inner.help:
+                    inner.parsekw['help'] = value.help
+                normalized_value = inner
+            elif config_cls is not None and (
+                isinstance(inner, config_cls) or
+                (inspect.isclass(inner) and issubclass(inner, config_cls))
+            ):
+                normalized_value = SubConfig(inner, help=value.help)
+            else:
+                normalized_value = value
+        elif config_cls is not None and (
+            isinstance(value, config_cls) or
+            (inspect.isclass(value) and issubclass(value, config_cls))
+        ):
+            normalized_value = SubConfig(value)
+        else:
+            if isinstance(value, bool):
+                normalized_value = Value(value, isflag=True)
+            else:
+                normalized_value = Value(value)
+        normalized[key] = normalized_value
+    return normalized
+
+
 class MetaConfig(type):
     """
     A metaclass for Config to help make usage between Config and DataConfig
@@ -200,6 +242,7 @@ class MetaConfig(type):
                     # this_default.update(unseen)
             inheritence_default.update(this_default)
             this_default = inheritence_default
+            this_default = _normalize_class_defaults(this_default)
             namespace['__default__'] = namespace['default'] = this_default
 
         if '__default__' in namespace and 'default' not in namespace:
@@ -2105,21 +2148,9 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         # the commandline
         parser._explicitly_given = set()  # type: ignore[attr-defined,union-attr]
 
-        # IRC: this ensures each key has a real Value class
-        # This is messy and needs to be rethought
-        _metadata = {
-            key: self._data[key]
-            for key, value in self._default.items()
-            if isinstance(self._data[key], Value)
-        }  # :type: Dict[str, Value]
-        for k, v in self._default.items():
-            # If the _data did not have value information but the _default
-            # does, use that. This is very ugly.
-            if k not in _metadata:
-                if isinstance(v, Value):
-                    _metadata[k] = v.copy().update(self._data[k])
+        _metadata = dict(self._default)
         _positions = {k: v.position for k, v in _metadata.items()
-                      if v.position is not None}
+                      if isinstance(v, Value) and v.position is not None}
         if _positions:
             if ub.find_duplicates(_positions.values()):
                 # TODO: make this a warning in 3.7+ and ensure there is a good
@@ -2136,7 +2167,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
         # Need to clean this up, metadata probably isn't necessary.
         for key, value in self._data.items():
-            if key in _metadata:
+            if key in _metadata and isinstance(_metadata[key], Value):
                 # Use the metadata in the Value class to enhance argparse
                 _value = _metadata[key]
             else:
