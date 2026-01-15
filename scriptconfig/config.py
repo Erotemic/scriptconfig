@@ -597,7 +597,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         """
         if isinstance(key, str) and '.' in key and getattr(self, '_has_subconfigs', False):
             parts = key.split('.')
-            node = self
+            node: Any = self
             for part in parts:
                 if not isinstance(node, Config):
                     raise KeyError(key)
@@ -661,7 +661,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
     def delitem(self, key: str) -> None:
         raise Exception('cannot delete items from a config')
 
-    def keys(self) -> Iterator[str]:
+    def keys(self) -> Iterable[str]:
         """
         Dictionary-like keys method
 
@@ -2103,7 +2103,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
         # Use custom action used to mark which values were explicitly set on
         # the commandline
-        parser._explicitly_given = set()  # type: ignore[attr-defined]
+        parser._explicitly_given = set()  # type: ignore[attr-defined,union-attr]
 
         # IRC: this ensures each key has a real Value class
         # This is messy and needs to be rethought
