@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 def _register_ubelt_repr_extensions() -> None:
     import ubelt as ub
     try:

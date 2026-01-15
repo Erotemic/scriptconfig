@@ -80,7 +80,7 @@ Ignore:
     >>> print(ub.urepr(config, nl=1))
 
 TODO:
-    - [ ] Handle Nested Configs?
+    - [x] Handle Nested Configs?
     - [ ] Integrate with Hyrda
     - [x] Dataclass support - See DataConfig
 """
@@ -89,6 +89,7 @@ from __future__ import annotations
 import os
 import ubelt as ub
 import itertools as it
+import argparse as argparse_mod
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Tuple, Union
 from scriptconfig import _ubelt_repr_extension
 from scriptconfig import smartcast
@@ -292,11 +293,11 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         * load - rewrite the values based on a filepath, dictionary, or command line contents.
 
     Attributes:
-        _data : this protected variable holds the raw state of the config
-            object and is accessed by the dict-like
+        _data : this protected variable holds the instance level raw state of
+            the config object and is accessed by the dict-like
 
-        _default : this protected variable maintains the default values for
-            this config.
+        _default : this protected variable maintains the instance-level default
+            values for this config.
 
         epilog (str): A class attribute that if specified will add an epilog
             section to the help text.
@@ -382,7 +383,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             allow_import: bool = True,
             allow_subconfig_overrides: bool = True,
             localns: Optional[Dict[str, Any]] = None,
-            stacklevel: int = 0) -> "Config":
+            stacklevel: Optional[int] = 0) -> "Config":
         """
         Create a command-line aware config instance.
 
@@ -435,18 +436,22 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 parsed. If "auto", it will default to true in most cases,
                 except when we can infer special behavior from the
                 user-defined config via standard keys: verbose, quiet, silent.
+
             allow_import (bool):
                 If True, allow module path selectors like
                 ``pkg.mod.ClassName``
                 for SubConfig selection. Defaults to True.
+
             allow_subconfig_overrides (bool):
                 If True, enable multipass CLI parsing to allow SubConfig
                 selection overrides. If False, only the default realized tree
                 is parsed and selector args error at parse time.
+
             localns (dict | None):
                 Namespace used to resolve SubConfig class names. If None and
                 ``stacklevel`` is not None, a namespace is derived from the
                 caller's frame.
+
             stacklevel (int | None):
                 Number of frames above the caller to use when deriving the
                 namespace for SubConfig class name resolution. Use None to
@@ -720,7 +725,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
              allow_import: bool = True,
              allow_subconfig_overrides: bool = True,
              localns: Optional[Dict[str, Any]] = None,
-             stacklevel: int = 0) -> "Config":
+             stacklevel: Optional[int] = 0) -> "Config":
         """
         Updates the configuration from a given data source.
 
@@ -1333,7 +1338,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         """ overloadable function called after each load """
         ...
 
-    def dump(self, stream: Optional[FileLike] = None, mode: Optional[str] = None) -> Optional[str]:
+    def dump(self, stream: Optional[FileLike] = None, mode: Optional[str] = None):
         """
         Write configuration file to a file or stream
 
@@ -1609,7 +1614,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
     @classmethod
     def port_from_argparse(cls,
-                           parser: "argparse.ArgumentParser",
+                           parser: "argparse_mod.ArgumentParser",
                            name: str = 'MyConfig',
                            style: str = 'dataconf') -> str:
         """
@@ -1903,15 +1908,14 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
     #     ...
 
     @property
-    def namespace(self) -> Dict[str, Any]:
+    def namespace(self) -> argparse_mod.Namespace:
         """
         Access a namespace like object for compatibility with argparse
 
         Returns:
             argparse.Namespace
         """
-        from argparse import Namespace
-        return Namespace(**dict(self))
+        return argparse_mod.Namespace(**dict(self))
 
     def to_omegaconf(self) -> Any:
         """
@@ -1941,9 +1945,10 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             parser (None | argparse.ArgumentParser): if specified this
                 parser is updated with options from this config.
 
-            special_options (bool, default=False):
+            special_options (bool):
                 adds special scriptconfig options, namely: --config, --dumps,
-                and --dump.
+                and --dump. Defaults to False.
+
             allow_subconfig_overrides (bool):
                 If True, allow SubConfig selector overrides. SubConfig
                 selection requires multipass parsing; use ``cli`` instead.

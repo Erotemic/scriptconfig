@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import ubelt as ub
 
@@ -52,8 +52,8 @@ class Value(ub.NiceRepr):
             will cause conflicts. Also note: positions indexes should start
             from 1.
 
-        isflag (bool): if True, args will be parsed as booleans.
-            Default to False.
+        isflag (bool | str): if True, args will be parsed as booleans.
+            Default to False. Can also be "counter".
 
         alias (List[str] | None):
             other long names (that will be prefixed with '--') that will be
@@ -96,7 +96,7 @@ class Value(ub.NiceRepr):
                  help: Optional[str] = None,
                  choices: Optional[Iterable[Any]] = None,
                  position: Optional[int] = None,
-                 isflag: bool = False,
+                 isflag: Union[bool, str] = False,
                  nargs: Optional[Any] = None,
                  alias: Optional[List[str]] = None,
                  required: bool = False,

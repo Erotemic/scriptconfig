@@ -59,7 +59,6 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from scriptconfig.config import Config, MetaConfig
 from scriptconfig.value import Value
-import inspect
 import warnings
 import ubelt as ub
 from scriptconfig import diagnostics
@@ -168,7 +167,7 @@ def dataconf(cls: Type[Any]) -> Type[Any]:
         for k in attr_default:
             delattr(SubConfig, k)
     else:
-        # dynamic subclass, this has issues with pickle It would be nice if we
+        # dynamic subclass, this has issues with pickle. It would be nice if we
         # could improve this. There must be a way that dataclasses does it that
         # we could follow.
         class SubConfig(DataConfig):
@@ -426,7 +425,6 @@ class DataConfig(Config, metaclass=MetaDataConfig):
             raise NotImplementedError(
                 'namespaces are not handled in scriptconfig')
         return cls.cli(argv=args, strict=False)
-
 
     @property
     def default(self) -> Dict[str, Any]:

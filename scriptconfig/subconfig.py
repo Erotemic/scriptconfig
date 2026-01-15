@@ -24,8 +24,6 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Mapping
-from typing import Any, Dict, Iterable, Tuple
-
 import ubelt as ub
 
 from scriptconfig.config import Config
@@ -103,7 +101,6 @@ class _ForbiddenSelectorAction(argparse.Action):
     argparse action that errors when subconfig selectors are disallowed.
     """
     def __init__(self, option_strings, dest, **kwargs):
-        import argparse
         self._message = kwargs.pop('_message', None)
         super().__init__(option_strings, dest, **kwargs)
 
