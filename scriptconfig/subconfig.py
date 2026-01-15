@@ -334,7 +334,7 @@ def coerce_data_updates(data, mode=None):
             try:
                 user_config = json.loads(data)
             except Exception:
-                import yaml
+                import yaml  # type: ignore[import-untyped]
                 import io
                 file = io.StringIO(data)
                 user_config = yaml.load(file, Loader=yaml.SafeLoader)

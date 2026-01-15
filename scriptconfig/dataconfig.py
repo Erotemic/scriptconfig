@@ -330,7 +330,10 @@ class DataConfig(Config, metaclass=MetaDataConfig):
                 "Unknown Arguments: {}. Expected arguments are: {}"
             ).format(unknown_args, list(self._default)))
         self._default.update(new_defaults)
-        self._data = self._default.copy()
+        self._data = {
+            key: (value.value if isinstance(value, Value) else value)
+            for key, value in self._default.items()
+        }
         self._subconfig_meta = {}
         self._has_subconfigs = False
         wrap_subconfig_defaults(self, _dont_call_post_init=_dont_call_post_init)

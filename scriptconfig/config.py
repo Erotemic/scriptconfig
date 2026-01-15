@@ -233,16 +233,8 @@ class MetaConfig(type):
             if this_default is None:
                 this_default = {}
             this_default = ub.udict(this_default)
+            namespace['__scfg_own_default__'] = ub.udict(this_default)
 
-            inheritence_default = {}
-            for base in bases:
-                if hasattr(base, '__default__'):
-                    inheritence_default.update(base.__default__)
-                    # unseen = base.__default__ - this_default
-                    # this_default.update(unseen)
-            inheritence_default.update(this_default)
-            this_default = inheritence_default
-            this_default = _normalize_class_defaults(this_default)
             namespace['__default__'] = namespace['default'] = this_default
 
         if '__default__' in namespace and 'default' not in namespace:
@@ -265,6 +257,16 @@ class MetaConfig(type):
         if diagnostics.DEBUG_META_CONFIG:
             print('FINAL namespace = {}'.format(ub.urepr(namespace, nl=2)))
         cls = super().__new__(mcls, name, bases, namespace, *args, **kwargs)  # type: ignore[misc]
+        if HANDLE_INHERITENCE:
+            inheritence_default = {}
+            for base in reversed(cls.mro()[1:]):
+                if hasattr(base, '__default__'):
+                    base_default = getattr(base, '__scfg_own_default__', base.__default__)
+                    inheritence_default.update(base_default)
+            own_default = getattr(cls, '__scfg_own_default__', cls.__default__)
+            inheritence_default.update(own_default)
+            this_default = _normalize_class_defaults(inheritence_default)
+            cls.__default__ = cls.default = this_default
         return cls
 
 
@@ -556,8 +558,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             __default__ = {
                 'option1': scfg.Value('bar', help='an option'),
                 'option2': scfg.Value((1, 2, 3), tuple, help='another option'),
-                'option3': None,
-                'option4': 'foo',
+                'option3': scfg.Value(None),
+                'option4': scfg.Value('foo'),
                 'discrete': scfg.Value(None, choices=['a', 'b', 'c']),
                 'apath': scfg.Path(help='a path'),
             }
@@ -909,7 +911,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 try:
                     user_config = json.loads(data)
                 except Exception:
-                    import yaml
+                    import yaml  # type: ignore[import-untyped]
                     import io
                     raw_file = io.StringIO(data)
                     user_config = yaml.load(raw_file, Loader=yaml.SafeLoader)
@@ -926,7 +928,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                     mode = 'yaml'
                 with FileLike(cast(Union[str, os.PathLike, IO[Any]], data), 'r') as file:
                     if mode == 'yaml':
-                        import yaml
+                        import yaml  # type: ignore[import-untyped]
                         user_config = yaml.load(file, Loader=yaml.SafeLoader)
                     elif mode == 'json':
                         import json
@@ -970,7 +972,10 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
         from scriptconfig import subconfig as _subcfg_mod
         localns = _subcfg_mod.resolve_localns(localns, stacklevel)
-        self._data = _default.copy()
+        self._data = {
+            key: (value.value if isinstance(value, Value) else value)
+            for key, value in _default.items()
+        }
         pending_updates = None
         if getattr(self, '_has_subconfigs', False):
             _subcfg_mod.ensure_subconfigs_instantiated(self, _dont_call_post_init=_dont_call_post_init)
@@ -1383,7 +1388,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         else:
             payload = dict(self.items())
         if mode == 'yaml':
-            import yaml
+            import yaml  # type: ignore[import-untyped]
             def order_rep(dumper, data):
                 return dumper.represent_mapping('tag:yaml.org,2002:map', data.items(), flow_style=False)
             yaml.add_representer(dict, order_rep, Dumper=yaml.SafeDumper)
@@ -2158,7 +2163,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 # positional, and using its order in the dictionary as that
                 # position. Need to account for inheritance though.
                 raise Exception('two values have the same position')
-            _keyorder = ub.oset(ub.argsort(_positions))
+            _keyorder = ub.oset(ub.argsort(cast(Any, _positions)))
             _keyorder |= (ub.oset(self._default) - _keyorder)
         else:
             _keyorder = ub.oset(self._default.keys())
