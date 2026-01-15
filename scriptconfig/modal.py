@@ -46,12 +46,15 @@ Example
     >>> except SystemExit:
     >>>     print('prevent system exit due to calling --help')
 """
+from __future__ import annotations
+
+import sys
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import ubelt as ub
-import sys
+
 from scriptconfig.util.util_class import class_or_instancemethod
 from scriptconfig import diagnostics
-from typing import List, Dict
 # from scriptconfig.config import MetaConfig
 
 
@@ -64,7 +67,12 @@ class MetaModalCLI(type):
     """
 
     @staticmethod
-    def __new__(mcls, name, bases, namespace, *args, **kwargs):
+    def __new__(mcls: type,
+                name: str,
+                bases: Tuple[type, ...],
+                namespace: Dict[str, Any],
+                *args: Any,
+                **kwargs: Any) -> type:
         # Note: this code has an impact on startuptime efficiency.
         # optimizations here can help.
 
@@ -202,7 +210,10 @@ class ModalCLI(metaclass=MetaModalCLI):
     """
     __subconfigs__ = []
 
-    def __init__(self, description='', sub_clis=None, version=None):
+    def __init__(self,
+                 description: str = '',
+                 sub_clis: Optional[List[Dict[str, Any]]] = None,
+                 version: Optional[str] = None) -> None:
         if sub_clis is None:
             sub_clis = []
 
@@ -330,13 +341,17 @@ class ModalCLI(metaclass=MetaModalCLI):
                 'subconfig': subconfig,
             })
 
-    def __call__(self, cli_cls):
+    def __call__(self, cli_cls: type) -> type:
         """ alias of register """
         return self.register(cli_cls)
 
     @class_or_instancemethod
-    def register(cls_or_self, cli_cls=None, command=None, alias=None,
-                 group=None, main=None):
+    def register(cls_or_self,
+                 cli_cls: Optional[type] = None,
+                 command: Optional[str] = None,
+                 alias: Optional[List[str]] = None,
+                 group: Optional[str] = None,
+                 main: Optional[Any] = None) -> Any:
         """
         Add a sub-CLI to this modal CLI
 
@@ -389,7 +404,7 @@ class ModalCLI(metaclass=MetaModalCLI):
             parserkw['allow_abbrev'] = self.__allow_abbrev__
         return parserkw
 
-    def argparse(self, parser=None, special_options=...):
+    def argparse(self, parser: Optional[Any] = None, special_options: Any = ...) -> Any:
         """
         Builds a new argparse object for this ModalCLI or extends an existing
         one with it.
@@ -522,7 +537,11 @@ class ModalCLI(metaclass=MetaModalCLI):
             argcomplete.autocomplete(parser)
 
     @class_or_instancemethod
-    def main(self, argv=None, strict=True, autocomplete='auto', _noexit=False):
+    def main(self,
+             argv: Optional[Sequence[str]] = None,
+             strict: bool = True,
+             autocomplete: Any = 'auto',
+             _noexit: bool = False) -> Any:
         """
         Execute the modal CLI as the main script
         """

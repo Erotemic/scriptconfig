@@ -23,7 +23,6 @@ Example:
 from __future__ import annotations
 
 import inspect
-from collections import OrderedDict
 from collections.abc import Mapping
 from typing import Any, Dict, Iterable, Tuple
 
@@ -364,7 +363,7 @@ def coerce_data_updates(data, mode=None):
     else:
         raise TypeError(f'Expected path or dict, but got {type(data)}')
 
-    flat = OrderedDict()
+    flat = {}
     for k, v in _flatten_nested(user_config):
         flat[k] = v
     return flat
@@ -670,7 +669,7 @@ def apply_dot_updates(cfg, updates, *, allow_import=True, localns=None, stacklev
     if stacklevel is not None:
         localns = resolve_localns(localns, stacklevel)
 
-    flat_updates = OrderedDict()
+    flat_updates = {}
     if isinstance(updates, Mapping):
         for k, v in _flatten_nested(updates):
             flat_updates[k] = v
@@ -731,7 +730,7 @@ def has_selector_overrides(cfg, updates):
     """
     if not updates:
         return False
-    flat_updates = OrderedDict()
+    flat_updates = {}
     if isinstance(updates, Mapping):
         for k, v in _flatten_nested(updates):
             flat_updates[k] = v
@@ -761,7 +760,7 @@ def flatten_defaults(cfg, prefix=(), include_class_options=False):
         >>> flat = flatten_defaults(cfg)
         >>> assert 'inner.x' in flat
     """
-    flat = OrderedDict()
+    flat = {}
     for key, value in cfg._data.items():
         if key in getattr(cfg, '_subconfig_meta', {}):
             if include_class_options:
@@ -967,7 +966,7 @@ def config_to_nested_dict(cfg, include_class=True):
             return val.value
         return val
 
-    result = OrderedDict()
+    result = {}
     meta_map = getattr(cfg, '_subconfig_meta', {})
     for key, value in cfg._data.items():
         meta = meta_map.get(key)

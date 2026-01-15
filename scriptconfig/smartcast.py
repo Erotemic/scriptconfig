@@ -1,9 +1,16 @@
+from __future__ import annotations
+
+from typing import Any, Union
+
 __all__ = ['smartcast']
 
 NoneType = type(None)
 
 
-def smartcast(item, astype=None, strict=False, allow_split='auto'):
+def smartcast(item: Any,
+              astype: Any = None,
+              strict: bool = False,
+              allow_split: Union[bool, str] = 'auto') -> Any:
     r"""
     Converts a string into a standard python type.
 
@@ -196,7 +203,7 @@ def smartcast(item, astype=None, strict=False, allow_split='auto'):
                 return astype(item)
 
 
-def _as_smart_type(item, astype):
+def _as_smart_type(item: Any, astype: Any) -> Any:
     """
     casts item to type, and tries to be clever when item is a string, otherwise
     it simply calls `astype(item)`.
@@ -287,7 +294,7 @@ def _smartcast_bool(item):
         raise TypeError('item does not represent boolean')
 
 
-def _smartcast_simple_sequence(item, astype=list):
+def _smartcast_simple_sequence(item: str, astype: Any = list) -> Any:
     """
     Casts only the simplest strings to a sequence. Cannot handle any nesting.
 
@@ -311,7 +318,7 @@ def _smartcast_simple_sequence(item, astype=list):
     return astype(smartcast(p) for p in parts)
 
 
-def _identity(arg):
+def _identity(arg: Any) -> Any:
     """ identity function """
     return arg
 
