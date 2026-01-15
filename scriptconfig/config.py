@@ -594,13 +594,13 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             data = dict(data)
         return str(data)
 
-    def asdict(self):
+    def asdict(self) -> Dict[str, Any]:
         if getattr(self, '_has_subconfigs', False):
             from scriptconfig.subconfig import config_to_nested_dict
             return config_to_nested_dict(self, include_class=False)
         return super().asdict()
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return self.asdict()
 
     def getitem(self, key: str) -> Any:
@@ -771,18 +771,22 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             special_options (bool, default=False):
                 adds special scriptconfig options, namely: --config, --dumps,
                 and --dump. Prefer using this over cmdline.
+
             allow_import (bool):
                 If True, allow module path selectors like
                 ``pkg.mod.ClassName``
                 for SubConfig selection. Defaults to True.
+
             allow_subconfig_overrides (bool):
                 If True, enable multipass CLI parsing to allow SubConfig
                 selection overrides. If False, only the default realized tree
                 is parsed and selector args error at parse time.
+
             localns (dict | None):
                 Namespace used to resolve SubConfig class names. If None and
                 ``stacklevel`` is not None, a namespace is derived from the
                 caller's frame.
+
             stacklevel (int | None):
                 Number of frames above the caller to use when deriving the
                 namespace for SubConfig class name resolution. Use None to
@@ -1389,7 +1393,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         raise AttributeError(key)
 
     @property
-    def _description(self):
+    def _description(self) -> Optional[str]:
         if hasattr(self, 'description'):
             ub.schedule_deprecation(
                 'scriptconfig', 'description', 'attribute of Config classes',
@@ -1408,7 +1412,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         return description
 
     @property
-    def _epilog(self):
+    def _epilog(self) -> Optional[str]:
         if hasattr(self, 'epilog'):
             ub.schedule_deprecation(
                 'scriptconfig', 'epilog', 'attribute of Config classes',
@@ -1421,7 +1425,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         return epilog
 
     @property
-    def _prog(self):
+    def _prog(self) -> Optional[str]:
         if hasattr(self, 'prog'):
             ub.schedule_deprecation(
                 'scriptconfig', 'prog', 'attribute of Config classes',
@@ -1433,7 +1437,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             prog = self.__class__.__name__
         return prog
 
-    def _parserkw(self):
+    def _parserkw(self) -> dict:
         """
         Generate the kwargs for making a new argparse.ArgumentParser
         """
@@ -1550,7 +1554,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         return text
 
     @classmethod
-    def port_from_click(cls, click_main, name=None, style='dataconf'):
+    def port_from_click(cls, click_main, name=None, style='dataconf') -> str:
         """
         Prints scriptconfig code that roughly implements some click CLI.
 
@@ -1681,7 +1685,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         return text
 
     @classmethod
-    def cls_from_argparse(cls, parser, name=None, description=None):
+    def cls_from_argparse(cls, parser, name=None, description=None) -> type:
         """
         Create a full configuration class from an existing argparse parser.
 
@@ -1755,7 +1759,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         return DynamicClass
 
     @classmethod
-    def _values_from_argparse(cls, parser, for_text=True):
+    def _values_from_argparse(cls, parser, for_text=True) -> list:
         """
         Port argparse options to a list of key / values.
         """
