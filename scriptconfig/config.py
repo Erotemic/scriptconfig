@@ -158,12 +158,24 @@ def define(default: Mapping[str, Any] = {}, name: Optional[str] = None) -> type:
 def _normalize_class_defaults(defaults):
     """
     Normalize class-level defaults to ensure Value/SubConfig metadata is present.
+
+    Example:
+        >>> import scriptconfig as scfg
+        >>> class Inner(scfg.Config):
+        ...     __default__ = {'x': 1}
+        >>> class Outer(scfg.Config):
+        ...     __default__ = {'inner': Inner, 'flag': False, 'leaf': 3}
+        >>> norms = _normalize_class_defaults(Outer.__default__)
+        >>> assert isinstance(norms['inner'], scfg.SubConfig)
+        >>> assert isinstance(norms['flag'], scfg.Value) and norms['flag'].isflag is True
+        >>> assert isinstance(norms['leaf'], scfg.Value)
     """
     normalized = {}
     if defaults is None:
         defaults = {}
-    config_cls = globals().get('Config')
-    if config_cls is None:
+    try:
+        Config
+    except NameError:
         return dict(defaults)
     from scriptconfig.subconfig import SubConfig
     for key, value in defaults.items():
@@ -175,16 +187,14 @@ def _normalize_class_defaults(defaults):
                 if value.help and not inner.help:
                     inner.parsekw['help'] = value.help
                 normalized_value = inner
-            elif config_cls is not None and (
-                isinstance(inner, config_cls) or
-                (inspect.isclass(inner) and issubclass(inner, config_cls))
+            elif isinstance(inner, Config) or (
+                inspect.isclass(inner) and issubclass(inner, Config)
             ):
                 normalized_value = SubConfig(inner, help=value.help)
             else:
                 normalized_value = value
-        elif config_cls is not None and (
-            isinstance(value, config_cls) or
-            (inspect.isclass(value) and issubclass(value, config_cls))
+        elif isinstance(value, Config) or (
+            inspect.isclass(value) and issubclass(value, Config)
         ):
             normalized_value = SubConfig(value)
         else:
@@ -344,7 +354,9 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         >>> config1 = MyConfig()
         >>> config2 = MyConfig(default=dict(option1='baz'))
     """
-    __default__: Dict[str, Value] = {}
+    # Note: class definitions are allowed to use raw literals; the metaclass
+    # normalizes them to Value/SubConfig instances at creation time.
+    __default__: Dict[str, Any] = {}
     # __allow_newattr__ = False
 
     def __init__(self,
@@ -1310,7 +1322,10 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 else:
                     value = template.cast(value)
 
-            # if value is not None:
+            if key in self.__default__:
+                default_value = self.__default__[key].value
+                if self._data.get(key, default_value) != default_value:
+                    continue
             self[key] = value
 
         # Then load config file defaults
@@ -2153,9 +2168,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         # the commandline
         parser._explicitly_given = set()  # type: ignore[attr-defined,union-attr]
 
-        _metadata = dict(self._default)
-        _positions = {k: v.position for k, v in _metadata.items()
-                      if isinstance(v, Value) and v.position is not None}
+        _positions = {k: v.position for k, v in self._default.items()
+                      if v.position is not None}
         if _positions:
             if ub.find_duplicates(_positions.values()):
                 # TODO: make this a warning in 3.7+ and ensure there is a good
@@ -2172,25 +2186,17 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
         # Need to clean this up, metadata probably isn't necessary.
         for key, value in self._data.items():
-            if key in _metadata and isinstance(_metadata[key], Value):
-                # Use the metadata in the Value class to enhance argparse
-                _value = _metadata[key]
-            else:
-                # _value = value if isinstance(value, Value) else None
-                if isinstance(value, Value):
-                    raise AssertionError('Did not expect {value=} to be a Value')
-                else:
-                    # In this case the user did not wrap the default with a
-                    # Value, so we can only infer so much about it, but we can
-                    # make some educated guesses.
-                    _autokw: Dict[str, Any] = {
-                        'help': '',
-                    }
-                    if isinstance(value, bool) or isinstance(value, int) and value in {0, 1}:
-                        # In this case they probably wanted a boolean flag
-                        # In any case it restrict functionality to set isflag=1
-                        _autokw['isflag'] = True
-                    _value = Value(value, **_autokw)
+            # Use the metadata in the Value class to enhance argparse
+            _value = self._default.get(key)
+            if _value is None:
+                _autokw: Dict[str, Any] = {
+                    'help': '',
+                }
+                if isinstance(value, bool) or isinstance(value, int) and value in {0, 1}:
+                    # In this case they probably wanted a boolean flag
+                    # In any case it restrict functionality to set isflag=1
+                    _autokw['isflag'] = True
+                _value = Value(value, **_autokw)
 
             from scriptconfig import value as value_mod
             value_mod._value_add_argument_to_parser(

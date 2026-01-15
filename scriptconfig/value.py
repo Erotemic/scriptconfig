@@ -390,6 +390,7 @@ def _value_add_argument_to_parser(value, _value, self, parser, key, fuzzy_hyphen
         # _value = _metadata[name]
         argkw.update(_value.parsekw)
         required = _value.required
+        value = _value.value
         isflag = _value.isflag
         positional = _value.position
 
@@ -497,6 +498,7 @@ def _value_add_argument_kw(value, _value, self, key, fuzzy_hyphens=0):
         # _value = _metadata[name]
         argkw.update(_value.parsekw)
         required = _value.required
+        value = _value.value
         isflag = _value.isflag
         positional = _value.position
 
@@ -607,10 +609,7 @@ def _maker_smart_parse_action(self):
                 def _smart_type(value):
                     key = self.dest
                     template = scfg_object.default[key]
-                    if isinstance(template, Value):
-                        value = template.cast(value)
-                    else:
-                        value = smartcast_mod.smartcast(value)
+                    value = template.cast(value)
                     return value
 
                 self.type = _smart_type

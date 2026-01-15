@@ -305,7 +305,9 @@ class DataConfig(Config, metaclass=MetaDataConfig):
     # Not sure if having a docstring for this will break user-configs.
     # No docstring, because user-specified docstring will define the default
     # __description__.
-    __default__: Dict[str, Value] = {}
+    # Note: class attributes may be raw literals; the metaclass normalizes
+    # them into Value/SubConfig instances after class creation.
+    __default__: Dict[str, Any] = {}
     __description__: Optional[str] = None
     __epilog__: Optional[str] = None
 
@@ -329,6 +331,12 @@ class DataConfig(Config, metaclass=MetaDataConfig):
             raise ValueError((
                 "Unknown Arguments: {}. Expected arguments are: {}"
             ).format(unknown_args, list(self._default)))
+        for key, value in new_defaults.items():
+            template = self._default.get(key)
+            if isinstance(template, Value) and not isinstance(value, Value):
+                new_template = template.copy()
+                new_template.value = value
+                new_defaults[key] = new_template
         self._default.update(new_defaults)
         self._data = {
             key: (value.value if isinstance(value, Value) else value)
