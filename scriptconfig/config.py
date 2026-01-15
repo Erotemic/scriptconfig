@@ -984,10 +984,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
         from scriptconfig import subconfig as _subcfg_mod
         localns = _subcfg_mod.resolve_localns(localns, stacklevel)
-        self._data = {
-            key: (value.value if isinstance(value, Value) else value)
-            for key, value in _default.items()
-        }
+        self._data = {key: value.value for key, value in _default.items()}
         pending_updates = None
         if getattr(self, '_has_subconfigs', False):
             _subcfg_mod.ensure_subconfigs_instantiated(self, _dont_call_post_init=_dont_call_post_init)
@@ -1301,31 +1298,25 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         # print('parser._explicitly_given = {!r}'.format(parser._explicitly_given))
         for key in _not_given:
             value = ns[key]
+            if key not in self.__default__:
+                # Skip dotted selector keys or unknown argparse entries.
+                continue
             # NOTE: this implementation is messy and needs refactor.
             # Currently the .__default__ .default, ._default, and ._data
             # attributes can all be Value objects, but this gets messy when the
             # "default" constructor argument is used. We should refactor so
             # _data and _default only store the raw current values,
             # post-casting.
-            if key not in self.__default__:
-                # probably an alias
-                continue
-
             if not RELY_ON_ACTION_SMARTCAST:
                 # Old way that we did smartcast. Hopefully the action class
                 # takes care of this.
                 template = self.__default__[key]
                 # print('template = {!r}'.format(template))
-                if not isinstance(template, Value):
-                    # smartcast non-valued params from commandline
-                    value = smartcast.smartcast(value)
-                else:
-                    value = template.cast(value)
+                value = template.cast(value)
 
-            if key in self.__default__:
-                default_value = self.__default__[key].value
-                if self._data.get(key, default_value) != default_value:
-                    continue
+            default_value = self.__default__[key].value
+            if self._data.get(key, default_value) != default_value:
+                continue
             self[key] = value
 
         # Then load config file defaults
@@ -2187,17 +2178,7 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
         # Need to clean this up, metadata probably isn't necessary.
         for key, value in self._data.items():
             # Use the metadata in the Value class to enhance argparse
-            _value = self._default.get(key)
-            if _value is None:
-                _autokw: Dict[str, Any] = {
-                    'help': '',
-                }
-                if isinstance(value, bool) or isinstance(value, int) and value in {0, 1}:
-                    # In this case they probably wanted a boolean flag
-                    # In any case it restrict functionality to set isflag=1
-                    _autokw['isflag'] = True
-                _value = Value(value, **_autokw)
-
+            _value = self._default[key]
             from scriptconfig import value as value_mod
             value_mod._value_add_argument_to_parser(
                 value, _value, self, parser, key, fuzzy_hyphens=FUZZY_HYPHENS)
