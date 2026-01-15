@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union, cast
 
 import ubelt as ub
 
@@ -87,9 +87,6 @@ class Value(ub.NiceRepr):
         self.value = 3.3
     """
 
-    # hack to work around isinstance with IPython %autoreload magic
-    __scfg_class__: str = 'Value'
-
     def __init__(self,
                  value: Any = None,
                  type: Optional[type] = None,
@@ -118,7 +115,7 @@ class Value(ub.NiceRepr):
         self.alias = alias
         self.position = position
         self.isflag = isflag
-        self.parsekw = {
+        self.parsekw: Dict[str, Any] = {
             'help': help,
             'type': type,
             'choices': choices,
@@ -176,7 +173,7 @@ class Value(ub.NiceRepr):
     @property
     def help(self) -> Optional[str]:
         # I'm not sure if I want to expose everything in parsekw or not.
-        return self.parsekw['help']
+        return cast(Optional[str], self.parsekw['help'])
 
     def _to_value_kw(self) -> Dict[str, Any]:
         """
@@ -184,8 +181,8 @@ class Value(ub.NiceRepr):
         """
 
         value = self
-        orig_help = self.parsekw['help']
-        orig_type = self.parsekw['type']
+        orig_help = cast(Optional[str], self.parsekw['help'])
+        orig_type = cast(Optional[Union[str, type]], self.parsekw['type'])
         value_kw = {k: v for k, v in self.__dict__.items() if v}
         value_kw.pop('parsekw')
         value_kw.update(value.parsekw)
@@ -585,25 +582,6 @@ def _resolve_alias(name, _value, fuzzy_hyphens):
     long_option_strings = ['--' + n for n in long_names]
     option_strings = short_option_strings + long_option_strings
     return option_strings
-
-
-def scfg_isinstance(item: object, cls: type) -> bool:
-    """
-    use instead isinstance for scfg types when reloading
-
-    Args:
-        item (object): instance to check
-        cls (type): class to check against
-
-    Returns:
-        bool
-    """
-    # Note: it is safe to simply use isinstance(item, cls) when
-    # not reloading
-    if hasattr(item, '__scfg_class__')  and hasattr(cls, '__scfg_class__'):
-        return item.__scfg_class__ == cls.__scfg_class__
-    else:
-        return isinstance(item, cls)
 
 
 def _maker_smart_parse_action(self):

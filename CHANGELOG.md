@@ -14,10 +14,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 * Replace OrderedDict usage with standard dicts across the codebase.
 * Move type annotations into implementation modules and remove stub files.
+* Replace scfg_isinstance autoreload checks with standard isinstance usage.
 
 ### Fixed
 * Corner case for BooleanFlagOrKeyValAction, only smartcast if type is not specified
 * BooleanFlagOrKeyValAction will now error if you use it with positional arguments to prevent unintended usage.
+* Resolve mypy typing issues in config, modal, and argparse helpers.
 
 
 ## Version 0.8.4 - Released 2025-10-10

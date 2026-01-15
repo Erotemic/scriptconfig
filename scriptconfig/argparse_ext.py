@@ -3,7 +3,7 @@ Argparse Extensions
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple, cast
 import argparse
 import os
 import sys
@@ -19,6 +19,9 @@ _Base = argparse._StoreAction
 _RawDescriptionHelpFormatter = argparse.RawDescriptionHelpFormatter
 _ArgumentDefaultsHelpFormatter = argparse.ArgumentDefaultsHelpFormatter
 """
+
+_RawDescriptionHelpFormatter: type[argparse.HelpFormatter]
+_ArgumentDefaultsHelpFormatter: type[argparse.HelpFormatter]
 
 try:
     if SCRIPTCONFIG_NORICH:
@@ -151,15 +154,15 @@ class BooleanFlagOrKeyValAction(_Base):
                 if not option_string.startswith('--no'):
                     _option_strings.append(option_string)
         else:
-            _option_strings = self.option_strings
+            _option_strings = list(self.option_strings)
         return ' | '.join(_option_strings)
 
     def _mark_parsed_argument(action, parser: argparse.ArgumentParser) -> None:
         if not hasattr(parser, '_explicitly_given'):
             # We might be given a subparser / parent parser
             # and not the original one we created.
-            parser._explicitly_given = set()
-        parser._explicitly_given.add(action.dest)
+            parser._explicitly_given = set()  # type: ignore[attr-defined]
+        parser._explicitly_given.add(action.dest)  # type: ignore[attr-defined]
 
     def __call__(action,
                  parser: argparse.ArgumentParser,
@@ -182,6 +185,8 @@ class BooleanFlagOrKeyValAction(_Base):
                 not specified, we always assume the "positive" version.
         """
         key_is_negative = False
+        if option_string is None:
+            raise Exception('Cannot use a BooleanFlagOrKeyValAction as a positional argument')
         if option_string in action.option_strings:
             # Was the positive or negated key given?
             key_is_negative = option_string.startswith('--no-')
@@ -258,6 +263,8 @@ class CounterOrKeyValAction(BooleanFlagOrKeyValAction):
                  namespace: argparse.Namespace,
                  values: Any,
                  option_string: Optional[str] = None) -> None:
+        if option_string is None:
+            raise Exception('Cannot use a CounterFlagOrKeyValAction as a positional argument')
         if option_string in action.option_strings:
             # Was the positive or negated key given?
             key_default = not option_string.startswith('--no-')
@@ -281,9 +288,9 @@ class CounterOrKeyValAction(BooleanFlagOrKeyValAction):
         action._mark_parsed_argument(parser)
 
 
-class RawDescriptionDefaultsHelpFormatter(
-        _RawDescriptionHelpFormatter,
-        _ArgumentDefaultsHelpFormatter):
+class RawDescriptionDefaultsHelpFormatter(  # type: ignore[misc,valid-type]
+        _RawDescriptionHelpFormatter,  # type: ignore[misc,valid-type]
+        _ArgumentDefaultsHelpFormatter):  # type: ignore[misc,valid-type]
 
     group_name_formatter = str  # revert rich-argparse title change
 
@@ -397,7 +404,7 @@ class CompatArgumentParser(argparse.ArgumentParser):
         self.exit_on_error = kwargs.pop('exit_on_error', True)
         super().__init__(*args, **kwargs)
 
-    def parse_known_args(self,
+    def parse_known_args(self,  # type: ignore[override]
                          args: Optional[Sequence[str]] = None,
                          namespace: Optional[argparse.Namespace] = None) -> Tuple[argparse.Namespace, List[str]]:
         """
@@ -406,17 +413,19 @@ class CompatArgumentParser(argparse.ArgumentParser):
         flag does not exist.
         """
         # This is the version from Python 3.10
-        from argparse import _sys, Namespace, SUPPRESS, ArgumentError
+        import sys
+        from argparse import Namespace, SUPPRESS, ArgumentError
         from argparse import _UNRECOGNIZED_ARGS_ATTR
         import os
         if args is None:
             # args default to the system args
-            args = _sys.argv[1:]
+            args = sys.argv[1:]
         else:
             # make sure that args are mutable
             args = list(args)
             # Allow Paths objects
-            args = [os.fspath(a) if isinstance(a, os.PathLike) else a for a in args]
+            args_list = [os.fspath(a) if isinstance(a, os.PathLike) else a for a in args]
+            args = cast(List[str], args_list)
 
         # default Namespace built from parser defaults
         if namespace is None:
@@ -438,17 +447,17 @@ class CompatArgumentParser(argparse.ArgumentParser):
         if self.exit_on_error:
             try:
                 if HAS_ARGPARSE_GH_125355:
-                    namespace, args = self._parse_known_args(args, namespace, intermixed=False)
+                    namespace, args = self._parse_known_args(args, namespace, intermixed=False)  # type: ignore[call-arg]
                 else:
-                    namespace, args = self._parse_known_args(args, namespace)
+                    namespace, args = self._parse_known_args(args, namespace)  # type: ignore[call-arg,arg-type]
             except ArgumentError:
-                err = _sys.exc_info()[1]
+                err = sys.exc_info()[1]
                 self.error(str(err))
         else:
             if HAS_ARGPARSE_GH_125355:
-                namespace, args = self._parse_known_args(args, namespace, intermixed=False)
+                namespace, args = self._parse_known_args(args, namespace, intermixed=False)  # type: ignore[call-arg]
             else:
-                namespace, args = self._parse_known_args(args, namespace)
+                namespace, args = self._parse_known_args(args, namespace)  # type: ignore[call-arg,arg-type]
 
         if hasattr(namespace, _UNRECOGNIZED_ARGS_ATTR):
             args.extend(getattr(namespace, _UNRECOGNIZED_ARGS_ATTR))
@@ -624,13 +633,14 @@ class ExtendedArgumentParser_POST_GH_114180(CompatArgumentParser):
         return result
 
 
+_ExtendedArgumentParserBase: type[CompatArgumentParser]
 if HAS_ARGPARSE_GH_114180:
     _ExtendedArgumentParserBase = ExtendedArgumentParser_POST_GH_114180
 else:
     _ExtendedArgumentParserBase = ExtendedArgumentParser_PRE_GH_114180
 
 
-class ExtendedArgumentParser(_ExtendedArgumentParserBase):
+class ExtendedArgumentParser(_ExtendedArgumentParserBase):  # type: ignore[misc,valid-type]
     """
     Extends the compatible argument parser to add minor new features.
     Namely: allowing options in argv to interchangeably use "_" or "-".

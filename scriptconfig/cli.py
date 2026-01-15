@@ -29,7 +29,7 @@ def quick_cli(default: Mapping[str, Any], name: Optional[str] = None) -> Any:
         name = 'ExpressCLI_{}'.format(hashid)
 
     from textwrap import dedent
-    vals = {}
+    vals: dict[str, Any] = {}
     code = dedent(
         '''
         import scriptconfig as scfg

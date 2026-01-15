@@ -97,7 +97,7 @@ class MetaModalCLI(type):
         #     namespace.pop(k)
         namespace['__subconfigs__'] = final_subconfigs
 
-        cls = super().__new__(mcls, name, bases, namespace, *args, **kwargs)
+        cls = super().__new__(mcls, name, bases, namespace, *args, **kwargs)  # type: ignore[misc]
         return cls
 
 
@@ -208,7 +208,7 @@ class ModalCLI(metaclass=MetaModalCLI):
         >>> MyModalCLI.main(argv=['command1'])
         >>> MyModalCLI.main(argv=['command2', '--baz=buz'])
     """
-    __subconfigs__ = []
+    __subconfigs__: List[Dict[str, Any]] = []
 
     def __init__(self,
                  description: str = '',
@@ -345,7 +345,7 @@ class ModalCLI(metaclass=MetaModalCLI):
         """ alias of register """
         return self.register(cli_cls)
 
-    @class_or_instancemethod
+    @class_or_instancemethod  # type: ignore[arg-type]
     def register(cls_or_self,
                  cli_cls: Optional[type] = None,
                  command: Optional[str] = None,
@@ -536,7 +536,7 @@ class ModalCLI(metaclass=MetaModalCLI):
         if argcomplete is not None:
             argcomplete.autocomplete(parser)
 
-    @class_or_instancemethod
+    @class_or_instancemethod  # type: ignore[arg-type]
     def main(self,
              argv: Optional[Sequence[str]] = None,
              strict: bool = True,
@@ -553,7 +553,7 @@ class ModalCLI(metaclass=MetaModalCLI):
 
         # Create an instance of we called as a classmethod
         if isinstance(self, type):
-            self = self()
+            self = self()  # type: ignore[call-arg,assignment]
 
         parser = self.argparse()
         # parser.exit_on_error = False
