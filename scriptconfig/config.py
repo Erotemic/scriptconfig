@@ -173,10 +173,6 @@ def _normalize_class_defaults(defaults):
     normalized = {}
     if defaults is None:
         defaults = {}
-    try:
-        Config
-    except NameError:
-        return dict(defaults)
     from scriptconfig.subconfig import SubConfig
     for key, value in defaults.items():
         if isinstance(value, SubConfig):
@@ -238,13 +234,19 @@ class MetaConfig(type):
         HANDLE_INHERITENCE = 1
         if HANDLE_INHERITENCE:
             # Handle inheritance, add in defaults from base classes
-            # Not sure this is exactly correct. Experimental.
             this_default = namespace.get('__default__', {})
             if this_default is None:
                 this_default = {}
             this_default = ub.udict(this_default)
-            namespace['__scfg_own_default__'] = ub.udict(this_default)
 
+            inheritence_default = {}
+            for base in reversed(bases):
+                if hasattr(base, '__default__'):
+                    inheritence_default.update(base.__default__)
+            inheritence_default.update(this_default)
+            this_default = inheritence_default
+            if not (name == 'Config' and namespace.get('__module__') == __name__):
+                this_default = _normalize_class_defaults(this_default)
             namespace['__default__'] = namespace['default'] = this_default
 
         if '__default__' in namespace and 'default' not in namespace:
@@ -267,16 +269,6 @@ class MetaConfig(type):
         if diagnostics.DEBUG_META_CONFIG:
             print('FINAL namespace = {}'.format(ub.urepr(namespace, nl=2)))
         cls = super().__new__(mcls, name, bases, namespace, *args, **kwargs)  # type: ignore[misc]
-        if HANDLE_INHERITENCE:
-            inheritence_default = {}
-            for base in reversed(cls.mro()[1:]):
-                if hasattr(base, '__default__'):
-                    base_default = getattr(base, '__scfg_own_default__', base.__default__)
-                    inheritence_default.update(base_default)
-            own_default = getattr(cls, '__scfg_own_default__', cls.__default__)
-            inheritence_default.update(own_default)
-            this_default = _normalize_class_defaults(inheritence_default)
-            cls.__default__ = cls.default = this_default
         return cls
 
 
@@ -570,8 +562,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             __default__ = {
                 'option1': scfg.Value('bar', help='an option'),
                 'option2': scfg.Value((1, 2, 3), tuple, help='another option'),
-                'option3': scfg.Value(None),
-                'option4': scfg.Value('foo'),
+                'option3': None,
+                'option4': 'foo',
                 'discrete': scfg.Value(None, choices=['a', 'b', 'c']),
                 'apath': scfg.Path(help='a path'),
             }
@@ -1315,6 +1307,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 value = template.cast(value)
 
             default_value = self.__default__[key].value
+            # Preserve any data/default overrides that were already applied
+            # before argparse defaults are merged in.
             if self._data.get(key, default_value) != default_value:
                 continue
             self[key] = value

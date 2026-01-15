@@ -144,7 +144,7 @@ def test_multiple_inheritence_diamond():
         Joined(**{
             'base_arg1': 'B1',
             'base_arg2': 'L_B2',
-            'base_arg3': 'R_B3',
+            'base_arg3': 'B3',
             'base_arg4': 'J3',
             'right_arg1': 'R1',
             'right_arg2': 'J2',
