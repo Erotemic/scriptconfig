@@ -20,6 +20,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 * Corner case for BooleanFlagOrKeyValAction, only smartcast if type is not specified
 * BooleanFlagOrKeyValAction will now error if you use it with positional arguments to prevent unintended usage.
 * Resolve mypy typing issues in config, modal, and argparse helpers.
+* Avoid subscripted ``os.PathLike`` at runtime to restore Python 3.8 compatibility in config loading helpers.
 
 
 ## Version 0.8.4 - Released 2025-10-10
