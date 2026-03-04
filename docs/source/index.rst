@@ -1,27 +1,33 @@
-.. scriptconfig documentation master file, created by
-   sphinx-quickstart on Sat Feb 16 16:52:18 2019.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+ScriptConfig Documentation
+==========================
 
-ScriptConfig's documentation
-============================
-
-.. The __init__ files contains the top-level documentation overview
-.. automodule:: scriptconfig.__init__
-   :show-inheritance:
-
+ScriptConfig provides a config-first interface for building CLIs that are easy
+for both humans and automation to use.
 
 .. toctree::
-   :maxdepth: 8
-   :caption: Package Layout
+   :maxdepth: 2
+   :caption: Manual
+
+   manual/overview
+   manual/quickstart
+   manual/dataconfig
+   manual/modal_cli
+   manual/nested_configs
+   manual/behavior_controls
+   manual/argparse_extensions
+   manual/patterns_and_recipes
+   manual/troubleshooting
+   manual/reference_tables
+   manual/legacy_and_deprecated
+
+.. toctree::
+   :maxdepth: 2
+   :caption: API Reference
 
    auto/scriptconfig
    auto/modules
-   manual/getting_started
-   manual/nested_configs
 
-
-Indices and tables
+Indices and Tables
 ==================
 
 * :ref:`genindex`

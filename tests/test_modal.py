@@ -460,6 +460,40 @@ def test_modal_value_command_override():
     assert MyModalCLI.main(argv=['rn']) == 0
 
 
+def test_modal_value_alias_fuzzy_hyphens():
+    class Command1(scfg.DataConfig):
+        @classmethod
+        def main(cls, argv=1, **kwargs):
+            cls.cli(argv=argv, data=kwargs)
+
+    class FuzzyModal(scfg.ModalCLI):
+        __fuzzy_hyphens__ = 1
+        my_cmd = scfg.ModalValue(Command1, alias='alias_cmd')
+
+    class StrictModal(scfg.ModalCLI):
+        __fuzzy_hyphens__ = 0
+        my_cmd = scfg.ModalValue(Command1, alias='alias_cmd')
+
+    class FuzzyModalHyphenAlias(scfg.ModalCLI):
+        __fuzzy_hyphens__ = 1
+        my_cmd = scfg.ModalValue(Command1, alias='alias-cmd')
+
+    assert FuzzyModal.main(argv=['my_cmd']) == 0
+    assert FuzzyModal.main(argv=['my-cmd']) == 0
+    assert FuzzyModal.main(argv=['alias_cmd']) == 0
+    assert FuzzyModal.main(argv=['alias-cmd']) == 0
+
+    assert StrictModal.main(argv=['my_cmd']) == 0
+    assert StrictModal.main(argv=['alias_cmd']) == 0
+    assert StrictModal.main(argv=['my-cmd'], _noexit=True) == 1
+    assert StrictModal.main(argv=['alias-cmd'], _noexit=True) == 1
+
+    # Match Value behavior: fuzzy hyphens adds underscore->hyphen variants,
+    # but does not add hyphen->underscore variants.
+    assert FuzzyModalHyphenAlias.main(argv=['alias-cmd']) == 0
+    assert FuzzyModalHyphenAlias.main(argv=['alias_cmd'], _noexit=True) == 1
+
+
 def test_arbitrary_opaque_subparser():
     import scriptconfig as scfg
     # import pytest

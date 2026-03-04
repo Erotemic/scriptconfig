@@ -6,6 +6,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Version 0.9.2 - Unreleased
 
+### Added
+* Expanded manual documentation with task-focused guides for `DataConfig`, `ModalCLI`, behavior controls, argparse extensions, recipes, troubleshooting, and reference tables. Added a dedicated `legacy_and_deprecated` page to isolate non-primary APIs and migration details.
+
+### Fixed
+* `ModalCLI` now respects `__fuzzy_hyphens__` for command and alias matching, including aliases declared via `ModalValue(alias=...)`. With fuzzy hyphens enabled, both underscore and hyphen spellings are accepted.
+
 
 ## Version 0.9.1 - Released 2026-03-02
 

@@ -515,6 +515,7 @@ class ModalCLI(metaclass=MetaModalCLI):
         for metadata in self._subconfig_metadata:
             self._update_metadata(metadata)
         cmdinfo_list = self._subconfig_metadata
+        fuzzy_hyphens = getattr(self, '__fuzzy_hyphens__', 1)
 
         # Build a list of primary command names to display as the valid options
         # for subparsers. This avoids cluttering the screen with all aliases
@@ -538,23 +539,27 @@ class ModalCLI(metaclass=MetaModalCLI):
         # for group, cmdinfos in group_to_cmdinfos.items():
         #     ...
 
-        def fuzzy_cmd_names(n):
-            options = []
-            options.append(n)
-            v1 = n.replace('-', '_')
-            if v1 not in options:
-                options.append(v1)
-            v2 = n.replace('_', '-')
-            if v2 not in options:
-                options.append(v2)
-            main_cmd, *aliases = options
-            return main_cmd, aliases
+        def value_like_fuzzy_long_names(names):
+            if not names:
+                return []
+            if isinstance(names, str):
+                names = [names]
+            long_names = list(names)
+            if fuzzy_hyphens:
+                # Match Value._resolve_alias behavior:
+                # only add underscore->hyphen variants.
+                unique_long_names = set(long_names)
+                modified_long_names = {n.replace('_', '-') for n in unique_long_names}
+                extra_long_names = modified_long_names - unique_long_names
+                long_names += sorted(extra_long_names)
+            return long_names
 
         for cmdinfo in cmdinfo_list:
             # group = cmdinfo['group']
             # Add a new command to subparser_group
 
-            main_cmd, aliases = fuzzy_cmd_names(cmdinfo['command'])
+            command_names = value_like_fuzzy_long_names([cmdinfo['command']])
+            main_cmd, aliases = command_names[0], command_names[1:]
 
             if cmdinfo.get('is_opaque'):
                 external_parser = command_subparsers.add_parser(
@@ -562,21 +567,30 @@ class ModalCLI(metaclass=MetaModalCLI):
                 external_parser.set_defaults(__opaque_main__=cmdinfo['main_func'])
                 continue
 
-            # TODO: enable alternate hyphen/underscore aliases, but suppress
-            # them from the help output. Even better would be to handle
-            # argument completion so they aren't clobbered.
-
-            aliases = []
-
             # copy so we dont have inplace issues
             # could just make this part of the update metadata method
             parserkw = {**cmdinfo['parserkw']}
 
+            aliases = value_like_fuzzy_long_names(aliases)
+
             if 'aliases' in parserkw:
-                parserkw['aliases'] = list(parserkw['aliases']) + list(aliases)
+                parserkw['aliases'] = value_like_fuzzy_long_names(list(parserkw['aliases']) + list(aliases))
             else:
                 if aliases:
                     parserkw['aliases'] = aliases
+
+            # Argparse aliases should be unique and should not include the main command.
+            if parserkw.get('aliases'):
+                seen = set()
+                unique_aliases = []
+                for alias in parserkw['aliases']:
+                    if alias == main_cmd:
+                        continue
+                    if alias in seen:
+                        continue
+                    seen.add(alias)
+                    unique_aliases.append(alias)
+                parserkw['aliases'] = unique_aliases
 
             if cmdinfo['is_modal']:
                 # Note sure if we need to do the prog modification here
