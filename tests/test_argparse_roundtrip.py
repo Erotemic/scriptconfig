@@ -105,3 +105,36 @@ def port_argparse_from_scriptconfig_with_unwrapped_values():
         """).replace('$', '')
     print(want)
     assert argparse_text == want
+
+
+def test_port_argparse_with_optin_fancy_features():
+    class MyConfig(scfg.DataConfig):
+        my_flag = scfg.Value(False, isflag=True)
+        my_counter = scfg.Value(0, isflag='counter')
+        my_option = scfg.Value('default')
+
+    argparse_text = MyConfig().port_to_argparse(
+        fuzzy_hyphens=True, flag_value_mode=True)
+    assert 'from scriptconfig' not in argparse_text
+    assert '--my-option' in argparse_text
+    assert '_PortedBooleanFlagOrKeyValAction' in argparse_text
+    assert '_PortedCounterOrKeyValAction' in argparse_text
+
+    ns = {}
+    exec(argparse_text, ns, ns)
+    parser = ns['parser']
+
+    args = parser.parse_args(['--my-flag'])
+    assert args.my_flag is True
+
+    args = parser.parse_args(['--my-flag=0'])
+    assert args.my_flag == 0
+
+    args = parser.parse_args(['--my_counter', '--my_counter'])
+    assert args.my_counter == 2
+
+    args = parser.parse_args(['--my_counter=5'])
+    assert args.my_counter == 5
+
+    args = parser.parse_args(['--my-option=spam'])
+    assert args.my_option == 'spam'

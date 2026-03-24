@@ -1859,16 +1859,37 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
     # Backwards compatibility, deprecate and remove
     port_argparse = port_from_argparse
 
-    def port_to_argparse(self) -> str:
+    def port_to_argparse(self,
+                         fuzzy_hyphens: bool = False,
+                         flag_value_mode: bool = False) -> str:
         """
         Attempt to make code for a nearly-equivalent argparse object.
 
         This code only handles basic cases. Some of the scriptconfig magic is
-        dropped so we dont need to rely on custom actions.
+        dropped by default so we dont need to rely on custom actions.
+
+        By default this emits plain argparse-compatible code. Opt in to closer
+        behavior with:
+
+        * ``fuzzy_hyphens=True`` to emit underscore / hyphen long-option
+          variants (e.g., ``--my_opt`` and ``--my-opt``).
+        * ``flag_value_mode=True`` to preserve scriptconfig boolean / counter
+          flag actions, which support both ``--flag`` and ``--flag=value``.
 
         The idea is that sometimes we can't depend on scriptconfig, so it would
         be nice to be able to translate an existing scriptconfig class to the
         nearly equivalent argparse code.
+
+        Args:
+            fuzzy_hyphens (bool):
+                If True, emit both underscore and hyphen long-option variants
+                for keys / aliases that contain underscores.
+
+            flag_value_mode (bool):
+                If True, preserve scriptconfig-like flexible flag parsing in
+                generated code using local argparse actions (supports
+                ``--flag`` and ``--flag=value`` forms for boolean / counter
+                flags).
 
         SeeAlso:
             :meth:`Config.argparse` - creates a real argparse object
@@ -1881,21 +1902,43 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
 
         Example:
             >>> import scriptconfig as scfg
+            >>> class DemoCLI(scfg.DataConfig):
+            >>>     my_opt = scfg.Value('v1', help='demo option')
+            >>>     flag = scfg.Value(False, isflag=True, help='demo flag')
+            >>> text = DemoCLI().port_to_argparse(
+            >>>     fuzzy_hyphens=True, flag_value_mode=True)
+            >>> print(text)
+            >>> assert 'parser = argparse.ArgumentParser(' in text
+            >>> assert '--my_opt' in text and '--my-opt' in text
+            >>> assert '_PortedBooleanFlagOrKeyValAction' in text
+            >>> assert 'from scriptconfig' not in text
+
+        Example:
+            >>> import scriptconfig as scfg
             >>> class SimpleCLI(scfg.DataConfig):
             >>>     data = scfg.Value(None, help='input data', position=1)
-            >>> self_or_cls = SimpleCLI()
-            >>> text = self_or_cls.port_to_argparse()
+            >>> self = SimpleCLI()
+            >>> text = self.port_to_argparse()
             >>> print(text)
+            >>> assert "parser.add_argument('data'" in text
+            >>> assert "nargs='?'" in text
+            >>> assert "default=argparse.SUPPRESS" in text
             >>> # Test that the generated code is executable
             >>> ns = {}
             >>> exec(text, ns, ns)
             >>> parser = ns['parser']
             >>> args1 = parser.parse_args(['foobar'])
             >>> assert args1.data == 'foobar'
-            >>> # Looks like we can't do positional or key/value easily
-            >>> #args1 = parser.parse_args(['--data=blag'])
-            >>> #print('args1 = {}'.format(ub.urepr(args1, nl=1)))
-
+            >>> args2 = parser.parse_args(['--data=blag'])
+            >>> assert args2.data == 'blag'
+            >>> args3 = parser.parse_args(['foo', '--data=bar'])
+            >>> assert args3.data == 'bar'
+            >>> # Demonstrate roundtrip behavior for representative argv cases
+            >>> orig = self.argparse(special_options=False)
+            >>> for argv in [['foobar'], ['--data=blag'], ['foo', '--data=bar']]:
+            >>>     got_orig = vars(orig.parse_args(argv))
+            >>>     got_port = vars(parser.parse_args(argv))
+            >>>     assert got_orig == got_port
         """
         parserkw = self._parserkw()
         to_pop = {k for k, v in parserkw.items() if v is None}
@@ -1917,6 +1960,8 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
             ))
 
         from scriptconfig import value as value_mod
+        need_ported_bool_action = False
+        need_ported_counter_action = False
         for key, _value in self._data.items():
             if isinstance(_value, value_mod.Value):
                 value = _value.value
@@ -1927,11 +1972,34 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                     # hack
                     _value = value_mod.Value(_value)
 
-            invocations = value_mod._value_add_argument_kw(value, _value, self, key)
+            invocations = value_mod._value_add_argument_kw(
+                value, _value, self, key, fuzzy_hyphens=fuzzy_hyphens)
+            has_key_value_variant = 'key_value' in invocations
             for arg_type, t in invocations.items():
                 meth, args, kwargs = t
-                if not isinstance(kwargs.get('action'), str):
-                    kwargs.pop('action')
+                if arg_type == 'positional' and has_key_value_variant:
+                    # scriptconfig positional arguments can usually be supplied
+                    # either positionally or via --key=value. Make the
+                    # generated positional optional to allow key/value-only use.
+                    if kwargs.get('nargs', None) is None:
+                        kwargs['nargs'] = '?'
+                    # Avoid overriding values set by the --key form when the
+                    # positional argument is omitted.
+                    kwargs['default'] = value_mod.CodeRepr('argparse.SUPPRESS')
+                action = kwargs.get('action')
+                if not isinstance(action, str):
+                    action_name = getattr(action, '__name__', '')
+                    if flag_value_mode and action_name == 'BooleanFlagOrKeyValAction':
+                        kwargs['action'] = value_mod.CodeRepr(
+                            '_PortedBooleanFlagOrKeyValAction')
+                        need_ported_bool_action = True
+                    elif flag_value_mode and action_name == 'CounterOrKeyValAction':
+                        kwargs['action'] = value_mod.CodeRepr(
+                            '_PortedCounterOrKeyValAction')
+                        need_ported_counter_action = True
+                        need_ported_bool_action = True
+                    else:
+                        kwargs.pop('action', None)
                 if kwargs.get('type', None) is not None:
                     kwargs['type'] = value_mod.CodeRepr(kwargs['type'].__name__)
                 to_pop = {k for k, v in kwargs.items() if v is None}
@@ -1941,6 +2009,86 @@ class Config(ub.NiceRepr, DictLike, metaclass=MetaConfig):
                 if args_body and kwargs_body:
                     args_body += ', '
                 lines.append(f'parser.{meth}({args_body}{kwargs_body})')
+
+        ported_action_blocks = []
+        if need_ported_bool_action:
+            ported_action_blocks.append(ub.codeblock(
+                '''
+                def _ported_smartcast(value):
+                    if not isinstance(value, str):
+                        return value
+                    lower = value.lower()
+                    if lower == 'true':
+                        return True
+                    if lower == 'false':
+                        return False
+                    try:
+                        return int(value)
+                    except Exception:
+                        pass
+                    try:
+                        return float(value)
+                    except Exception:
+                        pass
+                    return value
+
+
+                class _PortedBooleanFlagOrKeyValAction(argparse.Action):
+                    def __init__(self, option_strings, dest, default=None, required=False, help=None, type=None):
+                        _option_strings = []
+                        for option_string in option_strings:
+                            _option_strings.append(option_string)
+                            if option_string.startswith('--'):
+                                _option_strings.append('--no-' + option_string[2:])
+                        kwargs = dict(
+                            option_strings=_option_strings,
+                            dest=dest,
+                            default=default,
+                            type=type,
+                            choices=None,
+                            required=required,
+                            help=help,
+                            metavar=None,
+                            nargs='?'
+                        )
+                        super().__init__(**kwargs)
+
+                    def __call__(self, parser, namespace, values, option_string=None):
+                        if option_string is None:
+                            raise ValueError('Boolean flag action requires an option string')
+                        key_is_negative = option_string.startswith('--no-')
+                        if values is None:
+                            value = not key_is_negative
+                        else:
+                            value = values if self.type is not None else _ported_smartcast(values)
+                            if key_is_negative:
+                                value = not value
+                        setattr(namespace, self.dest, value)
+                '''))
+
+        if need_ported_counter_action:
+            ported_action_blocks.append(ub.codeblock(
+                '''
+                class _PortedCounterOrKeyValAction(_PortedBooleanFlagOrKeyValAction):
+                    def __call__(self, parser, namespace, values, option_string=None):
+                        if option_string is None:
+                            raise ValueError('Counter flag action requires an option string')
+                        key_is_negative = option_string.startswith('--no-')
+                        key_default = not key_is_negative
+                        current = getattr(namespace, self.dest, self.default)
+                        if current is None:
+                            current = 0
+
+                        if values is None:
+                            value = current + key_default
+                        else:
+                            value = values if self.type is not None else _ported_smartcast(values)
+                            if key_is_negative:
+                                value = not value
+                        setattr(namespace, self.dest, value)
+                '''))
+        if ported_action_blocks:
+            lines[1:1] = ported_action_blocks
 
         text = '\n'.join(lines)
         return text

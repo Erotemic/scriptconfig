@@ -8,6 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 * Expanded manual documentation with task-focused guides for `DataConfig`, `ModalCLI`, behavior controls, argparse extensions, recipes, troubleshooting, and reference tables. Added a dedicated `legacy_and_deprecated` page to isolate non-primary APIs and migration details.
+* `Config.port_to_argparse` now supports opt-in richer code generation via `fuzzy_hyphens=True` and `flag_value_mode=True` to preserve fuzzy long-option variants and flexible boolean / counter flag parsing (`--flag` and `--flag=value`).
 
 ### Fixed
 * `ModalCLI` now respects `__fuzzy_hyphens__` for command and alias matching, including aliases declared via `ModalValue(alias=...)`. With fuzzy hyphens enabled, both underscore and hyphen spellings are accepted.

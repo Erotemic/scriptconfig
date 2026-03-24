@@ -544,7 +544,10 @@ def _value_add_argument_kw(value, _value, self, key, fuzzy_hyphens=0):
         argkw.pop('nargs', None)
         argkw['dest'] = name
 
-        argkw['action'] = argparse_ext.BooleanFlagOrKeyValAction
+        if isflag == 'counter':
+            argkw['action'] = argparse_ext.CounterOrKeyValAction
+        else:
+            argkw['action'] = argparse_ext.BooleanFlagOrKeyValAction
 
     argkw['required'] = required
     # parent.add_argument(*option_strings, required=required, **argkw)
